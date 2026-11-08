@@ -159,12 +159,13 @@ h2 {
   border-top: 1px solid var(--line);
 }
 .row:active { background: var(--press); }
-.row .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; position: relative; }
 .row .name { font-size: 0.97rem; font-variation-settings: "wght" 520; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .meta { font-size: 0.8rem; }
+.row .meta { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .status { flex: none; width: 22px; height: 22px; color: var(--ink); }
 .row .status svg { width: 22px; height: 22px; display: block; stroke-width: 1.9; }
 .row.dir .status { color: var(--muted); }
+.row .name.err { color: var(--err); }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 
 /* ── Icons and thumbnails ── */
@@ -221,7 +222,8 @@ svg.folder { fill: currentColor; fill-opacity: 0.12; }
 
 /* ── Progress ── */
 .bar { display: block; height: 3px; background: var(--line); overflow: hidden; }
-.row .bar { margin-top: 5px; border-radius: 2px; }
+/* Under the text, outside the flow: the row keeps its height when the bar comes and goes. */
+.row .bar { position: absolute; left: 0; right: 0; bottom: -7px; border-radius: 2px; }
 .zip .bar { background: #3a342e; }
 .bar[hidden] { display: none; }
 .bar > span { display: block; height: 100%; width: 0; background: var(--ink); transition: width 0.2s linear; }

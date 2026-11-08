@@ -5,6 +5,9 @@
 // The app starts when the user picks "Share via QR Code" in the Finder context
 // menu. It runs the bundled pickup-helper for each selection and quits when
 // the last QR window closes.
+//
+// "Receive via QR Code" on a folder turns the direction around: the phone
+// drops files into that folder.
 
 import AppKit
 import CoreImage.CIFilterBuiltins
@@ -19,8 +22,10 @@ final class Session {
         case starting
         case waiting
         case connected(Int)
-        case sending(name: String, sent: Int64, total: Int64)
+        /// sent/total count the whole batch; index/files say which file it is.
+        case sending(name: String, sent: Int64, total: Int64, index: Int, files: Int)
         case sent(name: String)
+        case received(name: String, count: Int)
         case failed(String)
         case ended(delivered: Bool)
     }
@@ -31,6 +36,17 @@ final class Session {
     let from = UserDefaults.standard.string(forKey: "MacName") ?? Host.current().localizedName ?? "Mac"
     var url: String?
     var phase: Phase = .starting
+    /// Receive mode: the phone sends files into a folder on this Mac.
+    let receiving: Bool
+    /// Receive mode: the folder the phone drops files into. The user can change it.
+    private(set) var folder: URL?
+    /// Started from the app itself, not from a Finder service: a folder the
+    /// user picks becomes the default for the next start.
+    let isDefault: Bool
+    /// Shows the folder picker. The app delegate sets it, because it owns the window.
+    var chooseFolder: (() -> Void)?
+    /// Files the phone dropped off in this session.
+    private(set) var received: [URL] = []
 
     private let process = Process()
     private let stdin = Pipe()
@@ -38,14 +54,19 @@ final class Session {
     private var peers = 0
     var onEnd: (() -> Void)?
 
-    init(urls: [URL]) {
+    init(urls: [URL], receive: Bool = false, isDefault: Bool = false) {
+        receiving = receive
+        self.isDefault = isDefault
+        folder = receive ? urls[0].standardizedFileURL : nil
         title = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items"
         guard let helper = Bundle.main.url(forAuxiliaryExecutable: "pickup-helper") else {
             phase = .failed("The helper is missing from the app bundle.")
             return
         }
         process.executableURL = helper
-        process.arguments = ["-name", from, "--"] + urls.map(\.path)
+        process.arguments = receive
+            ? ["-name", from, "-receive", urls[0].path]
+            : ["-name", from, "--"] + urls.map(\.path)
         process.standardInput = stdin
         let out = Pipe()
         process.standardOutput = out
@@ -62,6 +83,19 @@ final class Session {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Receive mode: save new files in another folder. The QR code and the
+    /// connection to the phone stay the same.
+    func changeFolder(to url: URL) {
+        guard receiving, process.isRunning,
+              let line = try? JSONSerialization.data(withJSONObject: ["folder": url.path])
+        else { return }
+        stdin.fileHandleForWriting.write(line + Data([0x0A]))
+    }
+
+    static func displayPath(_ url: URL) -> String {
+        (url.path as NSString).abbreviatingWithTildeInPath
     }
 
     func stop() {
@@ -86,17 +120,39 @@ final class Session {
             url = e["url"] as? String
             title = e["title"] as? String ?? title
             subtitle = e["subtitle"] as? String ?? ""
+            if let folder { subtitle = Self.displayPath(folder) }
             phase = .waiting
+        case "folder":
+            guard let path = e["path"] as? String else { return }
+            let url = URL(fileURLWithPath: path)
+            folder = url
+            title = e["title"] as? String ?? url.lastPathComponent
+            subtitle = Self.displayPath(url)
+            if isDefault { UserDefaults.standard.set(path, forKey: "ReceiveFolder") }
+        case "folder-failed":
+            let alert = NSAlert()
+            alert.messageText = "Pickup cannot save files in this folder."
+            alert.informativeText = e["message"] as? String ?? ""
+            alert.runModal()
         case "peers":
             peers = Int(num("count"))
             if case .sending = phase { return }
             phase = peers > 0 ? .connected(peers) : .waiting
         case "progress":
-            phase = .sending(name: e["name"] as? String ?? "", sent: num("sent"), total: num("total"))
+            phase = .sending(name: e["name"] as? String ?? "", sent: num("sent"), total: num("total"),
+                             index: Int(num("index")), files: Int(num("files")))
         case "sent":
             phase = .sent(name: e["name"] as? String ?? "")
+        case "received":
+            if let path = e["path"] as? String { received.append(URL(fileURLWithPath: path)) }
+            phase = .received(name: e["name"] as? String ?? "", count: received.count)
+        case "receive-failed":
+            if case .sending = phase {
+                phase = received.isEmpty ? (peers > 0 ? .connected(peers) : .waiting)
+                                         : .received(name: received.last!.lastPathComponent, count: received.count)
+            }
         case "ended":
-            phase = .ended(delivered: e["reason"] as? String == "delivered")
+            phase = .ended(delivered: receiving ? !received.isEmpty : e["reason"] as? String == "delivered")
             // Let the user see the stamp, then close the window.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
@@ -271,9 +327,9 @@ struct SessionView: View {
             Rectangle().fill(Kraft.ink).frame(height: 2)
 
             HStack(alignment: .top, spacing: 0) {
-                field("From", session.from)
+                field("From", session.receiving ? "The phone that scans this" : session.from)
                 Rectangle().fill(Kraft.ink).frame(width: 1)
-                field("To", "The phone that scans this").padding(.leading, 10)
+                field("To", session.receiving ? session.from : "The phone that scans this").padding(.leading, 10)
             }
             .fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(Kraft.ink).frame(height: 1)
@@ -283,25 +339,70 @@ struct SessionView: View {
                 .padding(.vertical, 14)
 
             Rectangle().fill(Kraft.ink).frame(height: 1)
-            HStack(alignment: .bottom, spacing: 10) {
+            if session.receiving {
+                destination
+            } else {
+                contents
+            }
+        }
+        .foregroundStyle(Kraft.ink)
+    }
+
+    /// Receive mode: where the files go. Click to pick another folder.
+    var destination: some View {
+        Button {
+            session.chooseFolder?()
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Key("Contents")
+                    Key("Save to")
                     Text(session.title)
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if !session.subtitle.isEmpty {
-                        Text(session.subtitle)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(Kraft.muted)
-                    }
+                    Text(session.subtitle)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Kraft.muted)
+                        .lineLimit(1)
+                        .truncationMode(.head)
                 }
                 Spacer(minLength: 0)
-                Barcode(text: session.url ?? session.title).frame(width: 96, height: 30)
+                Text("Change…")
+                    .font(.system(size: 9.5, weight: .heavy))
+                    .tracking(1)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Kraft.ink, lineWidth: 1.5))
             }
-            .padding(.top, 8)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(Kraft.ink)
+        .buttonStyle(.plain)
+        // It is the only control, so it gets the focus when the window
+        // activates. The system ring around the whole block looks broken.
+        .focusEffectDisabled()
+        .help("Choose the folder for files from the phone")
+        .padding(.top, 8)
+    }
+
+    var contents: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Key("Contents")
+                Text(session.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !session.subtitle.isEmpty {
+                    Text(session.subtitle)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Kraft.muted)
+                }
+            }
+            Spacer(minLength: 0)
+            Barcode(text: session.url ?? session.title).frame(width: 96, height: 30)
+        }
+        .padding(.top, 8)
     }
 
     func field(_ key: String, _ value: String) -> some View {
@@ -328,7 +429,7 @@ struct SessionView: View {
                 ProgressView()
             }
             if let delivered = ended {
-                Text(delivered ? "Delivered" : "Returned")
+                Text(session.receiving ? (delivered ? "Received" : "Closed") : (delivered ? "Delivered" : "Returned"))
                     .font(.system(size: 34, weight: .black).width(.condensed))
                     .tracking(1.5)
                     .textCase(.uppercase)
@@ -356,19 +457,44 @@ struct SessionView: View {
             Label("Scan with your phone camera", systemImage: "camera.viewfinder")
         case .connected(let n):
             Label(n > 1 ? "\(n) phones connected" : "Phone connected", systemImage: "checkmark.circle.fill")
-        case let .sending(name, sent, total):
-            VStack(spacing: 5) {
-                ProgressView(value: Double(sent), total: Double(max(total, sent, 1)))
-                Text("Sending \(name)")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        case let .sending(name, sent, total, index, files):
+            VStack(spacing: 7) {
+                HStack(spacing: 6) {
+                    Text(session.receiving ? "Receiving" : "Sending")
+                    if files > 1 {
+                        Text("\(index) of \(files)").layoutPriority(1)
+                        Text("·")
+                    }
+                    Text(name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                // Thin white bar, printed on the black strip.
+                GeometryReader { geo in
+                    let p = Double(sent) / Double(max(total, sent, 1))
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.22))
+                        Capsule().fill(.white).frame(width: geo.size.width * p)
+                    }
+                }
+                .frame(height: 3)
+                .animation(.linear(duration: 0.2), value: sent)
             }
+            .padding(.vertical, 10)
         case .sent(let name):
             Label("Sent \(name)", systemImage: "checkmark.circle.fill")
                 .lineLimit(1)
                 .truncationMode(.middle)
+        case let .received(name, count):
+            Label(count > 1 ? "Received \(count) files" : "Received \(name)", systemImage: "tray.and.arrow.down.fill")
+                .lineLimit(1)
+                .truncationMode(.middle)
         case .ended(let delivered):
-            Text(delivered ? "Picked up · Sharing stopped" : "Not picked up · Sharing stopped")
+            if session.receiving {
+                Text("Drop-off closed")
+            } else {
+                Text(delivered ? "Picked up · Sharing stopped" : "Not picked up · Sharing stopped")
+            }
         case .failed(let msg):
             Text(msg)
                 .textCase(nil)
@@ -395,23 +521,54 @@ final class SessionWindow: NSPanel {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var sessions: [ObjectIdentifier: (Session, NSWindow)] = [:]
-    private var helpWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
         // Started without files (for example from the Applications folder):
-        // explain how to use the app.
+        // receive into Downloads. A Finder service call arrives just after
+        // launch, so wait a moment for it first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if self.sessions.isEmpty { self.showHelp() }
+            if self.sessions.isEmpty { self.receiveInDefaultFolder() }
         }
+    }
+
+    /// Opened again while it runs: show the default drop-off.
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        receiveInDefaultFolder()
+        return false
+    }
+
+    /// The folder the user picked last time in the default drop-off, or Downloads.
+    private var defaultFolder: URL? {
+        if let path = UserDefaults.standard.string(forKey: "ReceiveFolder") {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                return URL(fileURLWithPath: path)
+            }
+        }
+        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    }
+
+    private func receiveInDefaultFolder() {
+        // Only one default drop-off at a time.
+        if let (_, window) = sessions.values.first(where: { $0.0.isDefault }) {
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        guard let folder = defaultFolder else { return }
+        start([folder], receive: true, isDefault: true)
     }
 
     func application(_ app: NSApplication, open urls: [URL]) {
         start(urls.filter(\.isFileURL))
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    // AppKit does not count our panels as windows. Closing the folder picker
+    // would look like "last window closed", so we quit by ourselves when the
+    // last session window closes (see windowWillClose).
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ note: Notification) {
         for (s, _) in sessions.values { s.stop() }
@@ -427,10 +584,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         start(urls)
     }
 
-    private func start(_ urls: [URL]) {
+    /// Finder service entry point (NSMessage "receiveViaQRCode" in Info.plist).
+    @objc func receiveViaQRCode(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        let urls = pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard urls.count == 1, (try? urls[0].resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
+            error.pointee = "Select one folder." as NSString
+            return
+        }
+        start(urls, receive: true)
+    }
+
+    private func start(_ urls: [URL], receive: Bool = false, isDefault: Bool = false) {
         guard !urls.isEmpty else { return }
-        helpWindow?.close()
-        let session = Session(urls: urls)
+        let session = Session(urls: urls, receive: receive, isDefault: isDefault)
         let window = SessionWindow(
             contentRect: .zero,
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -451,6 +617,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.delegate = self
         placeWindow(window)
         session.onEnd = { [weak window] in window?.close() }
+        session.chooseFolder = { [weak window, weak session] in
+            guard let window, let session else { return }
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.directoryURL = session.folder
+            panel.prompt = "Save Here"
+            panel.message = "Files from the phone go into this folder."
+            panel.beginSheetModal(for: window) { response in
+                if response == .OK, let url = panel.url { session.changeFolder(to: url) }
+            }
+        }
         sessions[ObjectIdentifier(window)] = (session, window)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -470,17 +650,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let window = note.object as? NSWindow else { return }
         if let (session, _) = sessions.removeValue(forKey: ObjectIdentifier(window)) {
             session.stop()
+            // Show what the phone dropped off.
+            if !session.received.isEmpty {
+                NSWorkspace.shared.activateFileViewerSelecting(session.received)
+            }
+            if sessions.isEmpty {
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
         }
-    }
-
-    private func showHelp() {
-        let alert = NSAlert()
-        alert.messageText = "Pickup"
-        alert.informativeText = "Right-click a file or folder in the Finder and choose Share via QR Code. You can also drop files on the Pickup icon."
-        alert.addButton(withTitle: "OK")
-        NSApp.activate()
-        alert.runModal()
-        if sessions.isEmpty { NSApp.terminate(nil) }
     }
 }
 

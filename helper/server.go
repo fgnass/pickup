@@ -26,6 +26,7 @@ const (
 
 type server struct {
 	share       *share
+	receive     bool // receive mode: the phone drops files into inbox
 	name        string
 	api         *webrtc.API
 	cert        webrtc.Certificate
@@ -33,6 +34,8 @@ type server struct {
 	fingerprint []byte
 
 	mu        sync.Mutex
+	inbox     *inbox         // receive mode; the user can change it while phones are connected
+	peers     map[*peer]bool // authenticated phones
 	pending   int
 	connected int
 	used      bool        // a phone was connected at least once
@@ -83,6 +86,7 @@ func newServer(sh *share, ip net.IP, key *ecdsa.PrivateKey, name string) (*serve
 		cert:        *cert,
 		secret:      secret,
 		fingerprint: fp,
+		peers:       map[*peer]bool{},
 	}, nil
 }
 
@@ -126,7 +130,7 @@ func (s *server) newPeer(offer webrtc.SessionDescription) (*peer, *webrtc.Sessio
 		Certificates: []webrtc.Certificate{s.cert},
 	})
 	if err != nil {
-		s.peerClosed(false)
+		s.peerClosed(nil, false)
 		return nil, nil, err
 	}
 	p := newPeer(s, pc)
@@ -167,8 +171,9 @@ func (s *server) newPeer(offer webrtc.SessionDescription) (*peer, *webrtc.Sessio
 }
 
 // peerAuthed and peerClosed keep the counters and tell the macOS app.
-func (s *server) peerAuthed() {
+func (s *server) peerAuthed(p *peer) {
 	s.mu.Lock()
+	s.peers[p] = true
 	s.pending--
 	s.connected++
 	s.used = true
@@ -178,8 +183,9 @@ func (s *server) peerAuthed() {
 	emit("peers", map[string]any{"count": n})
 }
 
-func (s *server) peerClosed(wasAuthed bool) {
+func (s *server) peerClosed(p *peer, wasAuthed bool) {
 	s.mu.Lock()
+	delete(s.peers, p)
 	if wasAuthed {
 		s.connected--
 	} else {
@@ -203,12 +209,34 @@ func (s *server) peerClosed(wasAuthed bool) {
 // fileSent records a complete download. For a single-file share, the share
 // ends when the last phone disconnects after this.
 func (s *server) fileSent() {
-	if !s.share.single() {
+	if s.share == nil || !s.share.single() {
 		return
 	}
 	s.mu.Lock()
 	s.delivered = true
 	s.mu.Unlock()
+}
+
+func (s *server) dropOff() *inbox {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inbox
+}
+
+// setDropOff points new uploads to another folder. Files that are on their
+// way still go to the folder they started in. Connected phones show the new
+// folder name.
+func (s *server) setDropOff(in *inbox) {
+	s.mu.Lock()
+	s.inbox = in
+	peers := make([]*peer, 0, len(s.peers))
+	for p := range s.peers {
+		peers = append(peers, p)
+	}
+	s.mu.Unlock()
+	for _, p := range peers {
+		p.sendJSON(map[string]any{"t": "folder", "folder": nfc(in.name)})
+	}
 }
 
 // startIdleTimer arms the timer that ends an unused share.

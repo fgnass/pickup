@@ -37,6 +37,9 @@ type request struct {
 	Paths  []string `json:"paths"`
 	Size   int      `json:"size"`
 	Secret string   `json:"secret"`
+	Name   string   `json:"name"`
+	Mtime  int64    `json:"mtime"`
+	Run    *run     `json:"run"`
 }
 
 type peer struct {
@@ -54,11 +57,15 @@ type peer struct {
 
 	reqMu sync.Mutex
 	reqs  map[uint32]context.CancelFunc
+
+	upMu sync.Mutex
+	ups  map[uint32]*upload // receive mode: files on their way in
+	run  run                // receive mode: the phone's current batch
 }
 
 func newPeer(s *server, pc *webrtc.PeerConnection) *peer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &peer{s: s, pc: pc, ctx: ctx, cancel: cancel, lowCh: make(chan struct{}), reqs: map[uint32]context.CancelFunc{}}
+	return &peer{s: s, pc: pc, ctx: ctx, cancel: cancel, lowCh: make(chan struct{}), reqs: map[uint32]context.CancelFunc{}, ups: map[uint32]*upload{}}
 }
 
 func (p *peer) attach(dc *webrtc.DataChannel) {
@@ -73,6 +80,9 @@ func (p *peer) attach(dc *webrtc.DataChannel) {
 	dc.OnClose(p.close)
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if !msg.IsString {
+			if p.authed.Load() && p.s.receive {
+				p.receiveData(msg.Data)
+			}
 			return
 		}
 		var req request
@@ -96,7 +106,11 @@ func (p *peer) auth(req request) {
 		return
 	}
 	p.authed.Store(true)
-	p.s.peerAuthed()
+	p.s.peerAuthed(p)
+	if p.s.receive {
+		p.sendJSON(map[string]any{"t": "hello", "name": p.s.name, "mode": "receive", "folder": nfc(p.s.dropOff().name)})
+		return
+	}
 	p.sendJSON(map[string]any{
 		"t":      "hello",
 		"name":   p.s.name,
@@ -112,10 +126,15 @@ func (p *peer) close() {
 	}
 	p.cancel()
 	p.pc.Close()
-	p.s.peerClosed(p.authed.Load())
+	p.abortUploads()
+	p.s.peerClosed(p, p.authed.Load())
 }
 
 func (p *peer) handle(req request) {
+	if p.s.receive {
+		p.handleReceive(req)
+		return
+	}
 	switch req.T {
 	case "list":
 		go func() {
