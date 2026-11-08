@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#c9a274">
+  <title>Pickup</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <!-- One shipping label, like the one on the Mac. Everything is on it. -->
+  <div class="label">
+  <header class="top">
+    <div class="label-head">
+      <h1>Pickup</h1>
+      <span class="badge">Local · Encrypted</span>
+    </div>
+    <div class="label-addr">
+      <div><span class="k">From</span><span class="v" id="from">Your Mac</span></div>
+      <div><span class="k">To</span><span class="v">This phone</span></div>
+    </div>
+  </header>
+  <main id="app"></main>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+</body>
+</html>
