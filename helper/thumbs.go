@@ -38,21 +38,24 @@ func (sh *share) diskPath(i int, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	rel, err = visiblePath(rel)
+	if err != nil {
+		return "", err
+	}
 	if !it.Dir {
-		if clean(rel) != "." {
+		if rel != "." {
 			return "", errors.New("not a folder")
 		}
 		return it.path, nil
 	}
-	c := clean(rel)
-	info, err := it.root.Stat(c)
+	info, err := it.root.Stat(rel)
 	if err != nil {
 		return "", err
 	}
 	if !info.Mode().IsRegular() {
 		return "", errors.New("not a file")
 	}
-	return filepath.Join(it.path, filepath.FromSlash(c)), nil
+	return filepath.Join(it.path, filepath.FromSlash(rel)), nil
 }
 
 // thumbnails renders Quick Look thumbnails and calls emit for each one that

@@ -107,9 +107,6 @@ func (s *server) handleSignal(w http.ResponseWriter, r *http.Request) {
 
 	p, answer, err := s.newPeer(offer)
 	if err != nil {
-		s.mu.Lock()
-		s.pending--
-		s.mu.Unlock()
 		http.Error(w, "webrtc error", http.StatusInternalServerError)
 		return
 	}
@@ -122,11 +119,14 @@ func (s *server) handleSignal(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(answer)
 }
 
+// newPeer owns the pending slot reserved by handleSignal, including cleanup
+// when setup fails before a peer can be returned.
 func (s *server) newPeer(offer webrtc.SessionDescription) (*peer, *webrtc.SessionDescription, error) {
 	pc, err := s.api.NewPeerConnection(webrtc.Configuration{
 		Certificates: []webrtc.Certificate{s.cert},
 	})
 	if err != nil {
+		s.peerClosed(false)
 		return nil, nil, err
 	}
 	p := newPeer(s, pc)
@@ -145,7 +145,7 @@ func (s *server) newPeer(offer webrtc.SessionDescription) (*peer, *webrtc.Sessio
 	})
 
 	fail := func(err error) (*peer, *webrtc.SessionDescription, error) {
-		pc.Close()
+		p.close()
 		return nil, nil, err
 	}
 	if err := pc.SetRemoteDescription(offer); err != nil {

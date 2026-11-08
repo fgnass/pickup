@@ -4,10 +4,75 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestHiddenPaths(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{".ssh/id_ed25519", "public/.private/secret.txt", "public/.env", "public/visible.txt"} {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("contents"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sh, err := newShare([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sh.items[0].root.Close() })
+	for _, rel := range []string{".ssh", ".ssh/id_ed25519", "public/.private", "public/.private/secret.txt", "public/.env", "/public/.env", "public/../.ssh/id_ed25519"} {
+		t.Run(rel, func(t *testing.T) {
+			if f, _, err := sh.open(0, rel); !errors.Is(err, fs.ErrPermission) {
+				if f != nil {
+					f.Close()
+				}
+				t.Errorf("open: got %v, want permission error", err)
+			}
+			if _, err := sh.list(0, rel); !errors.Is(err, fs.ErrPermission) {
+				t.Errorf("list: got %v, want permission error", err)
+			}
+			if _, _, err := sh.zipEntries(0, rel); !errors.Is(err, fs.ErrPermission) {
+				t.Errorf("zip: got %v, want permission error", err)
+			}
+			if _, err := sh.diskPath(0, rel); !errors.Is(err, fs.ErrPermission) {
+				t.Errorf("thumbnail: got %v, want permission error", err)
+			}
+		})
+	}
+	entries, err := sh.list(0, "public")
+	if err != nil || len(entries) != 1 || entries[0].Name != "visible.txt" {
+		t.Fatalf("visible directory listing: %v, %v", entries, err)
+	}
+	f, _, err := sh.open(0, "public/visible.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := sh.diskPath(0, "public/visible.txt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []int{-1, 0} {
+		entries, _, err := sh.zipEntries(item, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 3 { // root, public/, and public/visible.txt
+			t.Fatalf("ZIP contains hidden entries or omits visible entries: %+v", entries)
+		}
+		for _, e := range entries {
+			if _, err := visiblePath(e.name); err != nil {
+				t.Errorf("ZIP contains hidden entry %q", e.name)
+			}
+		}
+	}
+}
 
 func TestZip(t *testing.T) {
 	dir := t.TempDir()
