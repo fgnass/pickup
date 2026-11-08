@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pickup</title>
-<meta name="description" content="Pack files and folders on your Mac, stick a QR label on them, and let any phone on your Wi-Fi pick them up. No app, no cloud, no account.">
+<meta name="description" content="Pack files and folders on your Mac, stick a QR label on them, and let any phone on your Wi-Fi pick them up. Or let the phone drop files into a folder on the Mac. No app, no cloud, no account.">
 <meta name="theme-color" content="#f6f4f0">
 <link rel="icon" href="icon.png">
 <style>
@@ -45,9 +45,10 @@
 
   /* ── Hero ── */
   .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; padding: 64px 0 40px; }
-  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+  .brand { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 26px; }
   .brand img { width: 104px; height: auto; margin: -6px 0 -10px -8px; }
-  .brand span { font-size: 1.9rem; text-transform: uppercase; letter-spacing: 0.03em; font-variation-settings: "opsz" 144, "wght" 900, "wdth" 35; }
+  /* line-height 0.75: the caps sit on the bottom edge of the folder, not the line box. */
+  .brand span { font-size: 1.9rem; line-height: 0.75; text-transform: uppercase; letter-spacing: 0.03em; font-variation-settings: "opsz" 144, "wght" 900, "wdth" 35; }
   h1 {
     font-size: clamp(2.4rem, 5vw, 3.5rem); line-height: 1.04; letter-spacing: -0.02em;
     font-variation-settings: "opsz" 144, "wght" 780, "wdth" 85; margin-bottom: 20px;
@@ -79,6 +80,17 @@
   .pic.phone img { object-position: 50% 0; }
   .step-n { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 0.8rem; font-weight: 800; margin-right: 8px; vertical-align: 2px; }
   .step p { color: var(--muted); }
+
+  /* ── The other way round ── */
+  .back-way { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  .back-way .pic { margin-bottom: 0; }
+  .back-way h2 { margin-bottom: 20px; }
+  .back-way > div > p { color: var(--muted); font-size: 1.05rem; max-width: 42ch; }
+  .points { list-style: none; margin-top: 22px; display: grid; gap: 14px; }
+  .points li { display: flex; gap: 12px; }
+  .points svg { width: 22px; height: 22px; flex: none; margin-top: 3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .points b { font-variation-settings: "wght" 700; }
+  .points span { color: var(--muted); }
 
   /* The Finder context menu, drawn in HTML. The tile shows its lower part. */
   .menu {
@@ -144,7 +156,7 @@
   @media (max-width: 780px) {
     .hero { grid-template-columns: 1fr; padding-top: 36px; }
     .shots { height: auto; aspect-ratio: 1 / 1.05; }
-    .steps, .usps { grid-template-columns: 1fr; }
+    .steps, .usps, .back-way { grid-template-columns: 1fr; }
     section { padding: 48px 0; }
     .band { padding: 56px 16px; }
   }
@@ -157,7 +169,7 @@
     <div>
       <div class="brand"><img src="folder.png" width="352" height="300" alt=""><span>Pickup</span></div>
       <h1>Pack it on your Mac.<br>Pick it up with your phone.</h1>
-      <p>Right-click files or a folder, and Pickup prints a QR label. Any phone on your Wi-Fi scans it and takes the files. No app, no cloud, no account.</p>
+      <p>Right-click files or a folder, and Pickup prints a QR label. Any phone on your Wi-Fi scans it and takes the files. It works the other way round, too. No app, no cloud, no account.</p>
       <div class="actions">
         <a class="btn primary" href="#install"><svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8"/></svg>Install</a>
         <a class="btn ghost" href="https://github.com/fgnass/pickup">Source on GitHub</a>
@@ -212,6 +224,35 @@
     </div>
   </section>
 
+  <section class="back-way" id="receive">
+    <div class="pic finder" aria-hidden="true">
+      <div class="menu">
+        <ul>
+          <li><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M10 14l4-4m-3 0h3v3"/></svg>Open in New Tab</li>
+          <li class="sep"></li>
+          <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8v.01"/></svg>Get Info</li>
+          <li><svg viewBox="0 0 24 24"><path d="M6 18l2-.5 9-9-1.5-1.5-9 9z"/></svg>Rename</li>
+          <li><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg>Quick Look</li>
+          <li class="sep"></li>
+          <li class="plain">Quick Actions<span class="chev">›</span></li>
+          <li class="sep"></li>
+          <li class="plain">New Terminal at Folder</li>
+          <li class="plain">Share via QR Code</li>
+          <li class="plain on">Receive via QR Code</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <h2>And the other way round.</h2>
+      <p>Right-click a folder and choose Receive via QR Code. The phone scans the label and sends photos, videos or any other files straight into that folder.</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8"/></svg><div><b>Open Pickup itself</b> <span>to receive into Downloads. Click the folder on the label to pick another one.</span></div></li>
+        <li><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><path d="M4 4l16 16"/></svg><div><b>A drop-off, not a share.</b> <span>The phone cannot see what is in the folder.</span></div></li>
+        <li><svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm8 0v5h5"/><path d="M9 14l2 2 4-4"/></svg><div><b>Nothing gets replaced.</b> <span>A name that exists gets a number, like “photo 2.jpg”.</span></div></li>
+      </ul>
+    </div>
+  </section>
+
   <section class="band">
     <div class="wrap">
       <h2>Your files never leave the room.</h2>
@@ -247,7 +288,7 @@
       </div>
       <div class="cmd"><code id="cmd">curl -fsSL https://pickup.gnass.buzz/install.sh | sh</code><button type="button" id="copy">Copy</button></div>
     </div>
-    <p class="note">Paste it into the Terminal. It installs Pickup and adds “Share via QR Code” to the Finder. Pickup is not signed with an Apple developer certificate; apps installed from the Terminal get no warning from macOS. You can <a href="install.sh">read the script</a> first.</p>
+    <p class="note">Paste it into the Terminal. It installs Pickup and adds “Share via QR Code” and “Receive via QR Code” to the Finder. Pickup is not signed with an Apple developer certificate; apps installed from the Terminal get no warning from macOS. You can <a href="install.sh">read the script</a> first.</p>
 
     <div class="more">
       <details>
@@ -286,7 +327,20 @@
             <li>File lists, previews and files travel over this connection. A ZIP is packed on the fly while it is sent; nothing is written to disk.</li>
             <li>The share ends when you close the window. It also ends by itself: a single file after the download, folders 10 minutes after the last phone left, or 30 minutes after start if nobody scanned the code. Then the secret and the key are gone.</li>
           </ol>
+          <p>Receive via QR Code uses the same connection and the same checks, only the files go the other way.</p>
           <p>The source code is on <a href="https://github.com/fgnass/pickup">GitHub</a>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>What happens to files from the phone?</summary>
+        <div>
+          <ul>
+            <li>Each file goes into a hidden temporary file first. Only when it is complete does it get its real name. If the connection breaks, the Mac deletes the incomplete file.</li>
+            <li>Pickup never replaces a file. If the name exists, the new file gets a number.</li>
+            <li>Names from the phone are cleaned up: no slashes, no hidden files.</li>
+            <li>Like a download from a browser, each file gets the macOS quarantine flag. So Gatekeeper checks it before it opens.</li>
+            <li>The phone cannot list, open or delete anything in the folder.</li>
+          </ul>
         </div>
       </details>
       <details>
@@ -294,7 +348,7 @@
         <div>
           <ul>
             <li><b>The page itself.</b> The phone loads the page (HTML and JavaScript) over plain HTTP, because a local address can get no trusted certificate. Someone who only listens on your Wi-Fi sees the page code, but no secret and no file data. But an attacker who can actively change traffic in your network could swap the page for a fake one and so get the secret and the files. So use Pickup on networks you trust, such as your home or office Wi-Fi, not on public hotspots.</li>
-            <li><b>The QR code.</b> Whoever sees the code can pick up the files while the share is open: over your shoulder, in a screenshot or in a screen share. Close the window to stop sharing at once.</li>
+            <li><b>The QR code.</b> Whoever sees the code can pick up the files while the share is open: over your shoulder, in a screenshot or in a screen share. For Receive via QR Code, they can put files into your folder. Close the window to stop at once.</li>
             <li><b>Your network can see that something happens.</b> Other devices can see that your Mac runs a web server and how much data goes to the phone. They cannot see names or contents.</li>
             <li><b>The app is not signed by Apple.</b> macOS does not check it. You trust the code on GitHub and the release built from it. You can read the source and build it yourself.</li>
           </ul>
@@ -303,7 +357,7 @@
       <details>
         <summary>“Share via QR Code” is not in the menu</summary>
         <div>
-          <p>Open <b>System Settings → Keyboard → Keyboard Shortcuts → Services → Files and Folders</b> and turn on <b>Share via QR Code</b>. You can also give it a shortcut there.</p>
+          <p>Open <b>System Settings → Keyboard → Keyboard Shortcuts → Services → Files and Folders</b> and turn on <b>Share via QR Code</b> and <b>Receive via QR Code</b>. You can also give them a shortcut there.</p>
         </div>
       </details>
     </div>
