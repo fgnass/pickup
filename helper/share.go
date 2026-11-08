@@ -118,6 +118,20 @@ func clean(rel string) string {
 
 func hidden(name string) bool { return strings.HasPrefix(name, ".") }
 
+// visiblePath applies the same hidden-name policy to direct requests as to
+// directory listings. The shared root itself remains accessible as ".".
+func visiblePath(rel string) (string, error) {
+	c := clean(rel)
+	if c != "." {
+		for _, part := range strings.Split(c, "/") {
+			if hidden(part) {
+				return "", fs.ErrPermission
+			}
+		}
+	}
+	return c, nil
+}
+
 func (sh *share) list(i int, rel string) ([]entry, error) {
 	it, err := sh.item(i)
 	if err != nil {
@@ -126,10 +140,14 @@ func (sh *share) list(i int, rel string) ([]entry, error) {
 	if !it.Dir {
 		return nil, errors.New("not a folder")
 	}
-	return it.list(clean(rel))
+	return it.list(rel)
 }
 
 func (it *item) list(rel string) ([]entry, error) {
+	rel, err := visiblePath(rel)
+	if err != nil {
+		return nil, err
+	}
 	f, err := it.root.Open(rel)
 	if err != nil {
 		return nil, err
@@ -158,10 +176,14 @@ func (sh *share) open(i int, rel string) (*os.File, fs.FileInfo, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	rel, err = visiblePath(rel)
+	if err != nil {
+		return nil, nil, err
+	}
 	var f *os.File
 	if it.Dir {
-		f, err = it.root.Open(clean(rel))
-	} else if clean(rel) == "." {
+		f, err = it.root.Open(rel)
+	} else if rel == "." {
 		f, err = os.Open(it.path)
 	} else {
 		err = errors.New("not a folder")
@@ -261,7 +283,10 @@ func (sh *share) zipEntries(i int, rel string) ([]zipEntry, int64, error) {
 		if err != nil {
 			return nil, 0, err
 		}
-		start := clean(rel)
+		start, err := visiblePath(rel)
+		if err != nil {
+			return nil, 0, err
+		}
 		prefix := it.Name
 		if start != "." {
 			prefix = path.Base(start)
