@@ -7,6 +7,7 @@
 
 const app = document.getElementById("app");
 const fromEl = document.getElementById("from");
+const toEl = document.getElementById("to");
 const toastEl = document.getElementById("toast");
 
 const S = {
@@ -26,6 +27,10 @@ const S = {
   thumbAsked: new Set(),
   finished: false,      // single file received; we closed the connection on purpose
   retried: false,       // one automatic reconnect per loss
+  uploads: [],          // receive mode: files picked on this phone, in order
+  sending: new Map(),   // request id -> upload
+  pumping: false,
+  run: null,            // the current batch, for the total progress on the Mac
 };
 
 const banner = document.createElement("div");
@@ -134,6 +139,8 @@ function closeConn() {
   S.transfers.clear();
   for (const c of S.calls.values()) c.reject(new Error("Connection lost"));
   S.calls.clear();
+  for (const up of S.sending.values()) upFail(up, "Connection lost");
+  S.sending.clear();
 }
 
 // The connection dropped, for example because the phone switched apps.
@@ -209,8 +216,18 @@ function onMessage(e) {
       S.hello = m;
       S.retried = false;
       hideBanner();
-      fromEl.textContent = m.name || "Your Mac";
+      if (m.mode === "receive") {
+        fromEl.textContent = "This phone";
+        toEl.textContent = m.name || "Your Mac";
+      } else {
+        fromEl.textContent = m.name || "Your Mac";
+      }
+      // Files that the lost connection interrupted: send them again.
+      for (const up of S.uploads) {
+        if (up.state === "error" && up.error === "Connection lost") { joinRun(up); up.state = "queued"; }
+      }
       render();
+      pump();
       for (const k of S.thumbQueue.keys()) S.thumbAsked.delete(k); // ask again on the new connection
       flushThumbs();
       break;
@@ -242,7 +259,19 @@ function onMessage(e) {
       if (dl) finish(dl);
       break;
     }
+    case "folder":
+      // The Mac user picked another folder for new files.
+      if (S.hello?.mode === "receive") { S.hello.folder = m.folder; renderInbox(); }
+      break;
+    case "saved": {
+      const up = S.sending.get(m.id);
+      S.sending.delete(m.id);
+      if (up) { up.state = "done"; up.savedAs = m.name; leaveRun(up, true); up.notify(); up.settle?.(); }
+      break;
+    }
     case "error": {
+      const up = S.sending.get(m.id);
+      if (up) { S.sending.delete(m.id); upFail(up, m.message); }
       const c = S.calls.get(m.id);
       if (c) { S.calls.delete(m.id); c.reject(new Error(m.message)); }
       const dl = S.transfers.get(m.id);
@@ -394,6 +423,7 @@ addEventListener("popstate", (e) => {
 
 function render() {
   if (!S.hello) return;
+  if (S.hello.mode === "receive") return renderInbox();
   if (S.loc === null) S.loc = rootLoc();
   const items = S.hello.items;
   if (!S.loc) {
@@ -514,6 +544,196 @@ function row(e) {
   return li;
 }
 
+// ── Drop-off (receive mode): the phone sends files to a folder on the Mac ──
+
+const FRAME = 64 << 10;     // bytes per message, like the Mac uses
+const READ = 1 << 20;       // bytes read from the file at a time
+const HIGH = 4 << 20;       // pause sending above this many buffered bytes
+const LOW = 1 << 20;
+
+const picker = h("input", { type: "file", multiple: true, hidden: true });
+picker.onchange = () => {
+  for (const file of picker.files) addUpload(file);
+  picker.value = "";
+  if (S.pumping && S.dc?.readyState === "open") send({ t: "run", run: runInfo() });
+  pump();
+};
+document.body.append(picker);
+
+// A run is all files sent since the queue was last empty. The Mac shows its
+// total progress. Failed files leave the run, so it can still reach 100%.
+function runInfo() {
+  const r = S.run;
+  return r && { files: r.files, bytes: r.bytes, done: r.done, doneBytes: r.doneBytes };
+}
+
+function joinRun(up) {
+  if (!S.uploads.some((u) => u !== up && (u.state === "queued" || u.state === "sending" || u.state === "saving"))) {
+    S.run = { files: 0, bytes: 0, done: 0, doneBytes: 0 };
+  }
+  S.run.files++;
+  S.run.bytes += up.file.size;
+}
+
+function leaveRun(up, delivered) {
+  if (!S.run) return;
+  if (delivered) {
+    S.run.done++;
+    S.run.doneBytes += up.file.size;
+  } else {
+    S.run.files--;
+    S.run.bytes -= up.file.size;
+  }
+}
+
+function addUpload(file) {
+  const up = {
+    file, state: "queued", sent: 0, error: null, savedAs: null, preview: null, listeners: new Set(),
+    notify() { for (const f of up.listeners) f(up); },
+  };
+  if (/^image\//.test(file.type)) up.preview = URL.createObjectURL(file);
+  joinRun(up);
+  S.uploads.push(up);
+  if (S.hello?.mode === "receive") renderInbox();
+}
+
+// Send queued files one at a time.
+async function pump() {
+  if (S.pumping) return;
+  S.pumping = true;
+  try {
+    let up;
+    while ((up = S.uploads.find((u) => u.state === "queued")) && S.dc?.readyState === "open" && S.hello) {
+      await sendFile(up);
+    }
+  } finally {
+    S.pumping = false;
+  }
+}
+
+async function sendFile(up) {
+  const dc = S.dc;
+  const id = S.nextId++;
+  const { file } = up;
+  up.state = "sending";
+  up.sent = 0;
+  up.error = null;
+  S.sending.set(id, up);
+  up.notify();
+  dc.bufferedAmountLowThreshold = LOW;
+  try {
+    send({ t: "put", id, name: file.name, size: file.size, mtime: file.lastModified || 0, run: runInfo() });
+    for (let off = 0; off < file.size; ) {
+      const buf = new Uint8Array(await file.slice(off, off + READ).arrayBuffer());
+      for (let i = 0; i < buf.length; i += FRAME - 4) {
+        if (S.dc !== dc || up.state !== "sending") return;
+        if (dc.bufferedAmount > HIGH) await drained(dc);
+        if (S.dc !== dc || up.state !== "sending") return;
+        const part = buf.subarray(i, i + FRAME - 4);
+        const frame = new Uint8Array(4 + part.length);
+        new DataView(frame.buffer).setUint32(0, id);
+        frame.set(part, 4);
+        dc.send(frame);
+        off += part.length;
+        up.sent = Math.max(0, off - dc.bufferedAmount);
+        up.notify();
+      }
+    }
+    send({ t: "done", id });
+    up.sent = file.size;
+    up.state = "saving";
+    up.notify();
+    await new Promise((res) => (up.settle = res)); // "saved", "error" or connection lost
+  } catch (err) {
+    if (S.sending.get(id) === up) { S.sending.delete(id); send({ t: "cancel", id }); }
+    upFail(up, err.message || "Could not read the file");
+  }
+}
+
+function drained(dc) {
+  return new Promise((res) => {
+    const done = () => { dc.removeEventListener("bufferedamountlow", done); dc.removeEventListener("close", done); res(); };
+    dc.addEventListener("bufferedamountlow", done);
+    dc.addEventListener("close", done);
+  });
+}
+
+function upFail(up, msg) {
+  if (up.state === "done" || up.state === "error") return;
+  leaveRun(up, false);
+  up.state = "error";
+  up.error = msg;
+  up.notify();
+  up.settle?.();
+}
+
+function renderInbox() {
+  const ups = S.uploads;
+  const done = ups.filter((u) => u.state === "done").length;
+  const head = h("div", { class: "head" },
+    h("div", { class: "title" },
+      h("span", { class: "k" }, "Drop-off folder"),
+      h("h2", {}, display(S.hello.folder || "")),
+      h("p", { class: "meta" }, ups.length
+        ? `${done} of ${plural(ups.length, "file")} delivered`
+        : "Files you send go into this folder on the Mac."),
+    ),
+  );
+  const list = h("ul", { class: "files" }, ...ups.map(upRow));
+  if (!ups.length) list.append(h("li", { class: "empty" }, "Nothing sent yet."));
+  const btn = h("button", { class: "primary", onclick: () => picker.click() }, svg(ICONS.upload), "Choose files to send");
+  mount(head, list, h("div", { class: "foot" }, btn));
+}
+
+function upRow(up) {
+  const name = display(up.file.name);
+  const meta = h("span", { class: "meta" });
+  const bar = progressBar();
+  const status = h("span", { class: "status" });
+  const iconEl = h("span", { class: "icon" }, icon(name, false));
+  if (up.preview) {
+    const img = h("img", { src: up.preview, alt: "", decoding: "async" });
+    img.onload = () => { iconEl.replaceChildren(img); iconEl.classList.add("thumb"); };
+  }
+  const nameEl = h("span", { class: "name" }, name);
+  const li = h("li", { class: "row" }, iconEl, h("span", { class: "text" }, nameEl, meta, bar.el), status);
+  const update = () => {
+    bar.set({ state: up.state === "sending" ? "loading" : "", received: up.sent, size: up.file.size });
+    meta.textContent =
+      up.state === "sending" ? `${fmtSize(up.sent)} of ${fmtSize(up.file.size)}` :
+      up.state === "queued" ? `${fmtSize(up.file.size)} · Waiting` :
+      up.state === "saving" ? "Saving…" :
+      up.state === "error" ? `${up.error} · Tap to try again` :
+      up.savedAs && up.savedAs !== up.file.name.normalize("NFC") ? `Saved as ${display(up.savedAs)}` : `${fmtSize(up.file.size)} · Delivered`;
+    nameEl.classList.toggle("err", up.state === "error");
+    status.replaceChildren(up.state === "done" ? svg(ICONS.check) : up.state === "error" ? svg(ICONS.retry) : "");
+    li.classList.toggle("done", up.state === "done");
+    const head = app.querySelector(".head .meta");
+    if (head && S.uploads.length) renderInboxMeta(head);
+  };
+  up.listeners.clear();
+  up.listeners.add(update);
+  li.onclick = () => {
+    if (up.state !== "error") return;
+    joinRun(up);
+    up.state = "queued";
+    up.notify();
+    pump();
+  };
+  update();
+  return li;
+}
+
+function renderInboxMeta(el) {
+  const done = S.uploads.filter((u) => u.state === "done").length;
+  el.textContent = `${done} of ${plural(S.uploads.length, "file")} delivered`;
+}
+
+// Leaving the page stops the uploads.
+addEventListener("beforeunload", (e) => {
+  if (S.uploads.some((u) => u.state === "sending" || u.state === "queued" || u.state === "saving")) e.preventDefault();
+});
+
 function downloadButton(key, name, start, label) {
   const dl = S.downloads.get(key) || makeDownload(key, name);
   const btn = h("button", { class: "primary" });
@@ -608,6 +828,8 @@ const ICONS = {
   check: "M5 12.5l4.5 4.5L19 7.5",
   download: "M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14",
   parcel: "M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8",
+  upload: "M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 19h14",
+  retry: "M4 12a8 8 0 1 0 2.5-5.8M4 4v4.5h4.5",
 };
 
 const KINDS = {

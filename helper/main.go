@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -60,13 +61,23 @@ func fatal(err error) {
 func main() {
 	name := flag.String("name", "", "name of this Mac, shown on the phone")
 	ipFlag := flag.String("ip", "", "local IPv4 address to use (default: auto)")
+	receive := flag.String("receive", "", "let the phone drop files into this folder instead of sharing PATHs")
 	flag.Parse()
-	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: pickup-helper [-name NAME] [-ip IP] PATH...")
+	if (flag.NArg() == 0) == (*receive == "") {
+		fmt.Fprintln(os.Stderr, "usage: pickup-helper [-name NAME] [-ip IP] PATH...\n       pickup-helper [-name NAME] [-ip IP] -receive FOLDER")
 		os.Exit(2)
 	}
 
-	sh, err := newShare(flag.Args())
+	var (
+		sh  *share
+		in  *inbox
+		err error
+	)
+	if *receive != "" {
+		in, err = newInbox(*receive)
+	} else {
+		sh, err = newShare(flag.Args())
+	}
 	if err != nil {
 		fatal(err)
 	}
@@ -84,6 +95,8 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	srv.receive = in != nil
+	srv.inbox = in
 
 	ln, err := net.Listen("tcp4", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
@@ -95,19 +108,48 @@ func main() {
 	frag := base64.RawURLEncoding.EncodeToString(append(append([]byte{}, srv.secret...), srv.fingerprint...))
 	url := fmt.Sprintf("http://%s:%d/#%s", ip, port, frag)
 
-	title, subtitle := sh.summary()
-	emit("ready", map[string]any{"url": url, "title": title, "subtitle": subtitle})
+	var title, subtitle string
+	if in != nil {
+		title, subtitle = in.summary()
+	} else {
+		title, subtitle = sh.summary()
+	}
+	emit("ready", map[string]any{"url": url, "title": title, "subtitle": subtitle, "receive": in != nil})
 
 	srv.startIdleTimer()
 
-	// The macOS app holds our stdin open. When it goes away, we go too.
+	// The macOS app holds our stdin open and sends commands as JSON lines.
+	// When it goes away, we go too.
 	go func() {
-		io.Copy(io.Discard, os.Stdin)
+		commands(srv, os.Stdin)
 		os.Exit(0)
 	}()
 
 	if err := http.Serve(ln, srv.routes()); err != nil {
 		fatal(err)
+	}
+}
+
+// commands reads JSON lines from the macOS app until r ends.
+//
+//	{"folder": "/path"}  receive mode: save new files in this folder
+func commands(s *server, r io.Reader) {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		var cmd struct {
+			Folder string `json:"folder"`
+		}
+		if json.Unmarshal(sc.Bytes(), &cmd) != nil || cmd.Folder == "" || !s.receive {
+			continue
+		}
+		in, err := newInbox(cmd.Folder)
+		if err != nil {
+			emit("folder-failed", map[string]any{"message": err.Error()})
+			continue
+		}
+		s.setDropOff(in)
+		title, subtitle := in.summary()
+		emit("folder", map[string]any{"path": in.dir, "title": title, "subtitle": subtitle})
 	}
 }
 
