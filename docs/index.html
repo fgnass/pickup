@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pickup</title>
+<meta name="description" content="Pack files and folders on your Mac, stick a QR label on them, and let any phone on your Wi-Fi pick them up. No app, no cloud, no account.">
+<meta name="theme-color" content="#f6f4f0">
+<link rel="icon" href="icon.png">
+<style>
+  @font-face {
+    font-family: "Roboto Flex";
+    src: url("roboto-flex.woff2") format("woff2");
+    font-weight: 100 1000;
+    font-stretch: 25% 151%;
+    font-display: swap;
+  }
+  :root {
+    --bg: #f6f4f0;
+    --tile: #ebe6de;
+    --kraft: #c9a274;
+    --paper: #ffffff;
+    --ink: #1f1b17;
+    --muted: #776d60;
+    --line: rgba(31, 27, 23, 0.14);
+    --stamp: #d8432a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    color: var(--ink);
+    font: 17px/1.6 "Roboto Flex", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 16px;
+    background: var(--bg);
+    overflow-x: clip;
+  }
+  a { color: inherit; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  section { padding: 72px 0; }
+  h2 {
+    font-size: clamp(1.8rem, 3.8vw, 2.5rem); line-height: 1.08; margin-bottom: 36px; letter-spacing: -0.02em;
+    font-variation-settings: "opsz" 144, "wght" 780, "wdth" 85;
+  }
+  h3 { font-size: 1.1rem; margin-bottom: 4px; font-variation-settings: "wght" 700; }
+
+  /* ── Hero ── */
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; padding: 64px 0 40px; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+  .brand img { width: 104px; height: auto; margin: -6px 0 -10px -8px; }
+  .brand span { font-size: 1.9rem; text-transform: uppercase; letter-spacing: 0.03em; font-variation-settings: "opsz" 144, "wght" 900, "wdth" 35; }
+  h1 {
+    font-size: clamp(2.4rem, 5vw, 3.5rem); line-height: 1.04; letter-spacing: -0.02em;
+    font-variation-settings: "opsz" 144, "wght" 780, "wdth" 85; margin-bottom: 20px;
+  }
+  .hero p { color: var(--muted); font-size: 1.12rem; max-width: 36ch; margin-bottom: 28px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; min-height: 50px; padding: 12px 22px;
+    border-radius: 6px; text-decoration: none; font-size: 1rem; font-variation-settings: "wght" 750; letter-spacing: 0.02em;
+  }
+  .btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn.primary { background: var(--ink); color: var(--paper); }
+  .btn.ghost { border: 1.5px solid var(--ink); color: var(--ink); }
+  .req { margin-top: 14px; font-size: 0.9rem; color: var(--muted); }
+
+  .shots { position: relative; height: 540px; }
+  .shots img { position: absolute; display: block; }
+  .shots .mac { width: 66%; left: 0; top: 0; }
+  .shots .phone { width: 42%; left: 50%; top: 90px; z-index: 1; border-radius: 30px; border: 7px solid #1f1b17; box-shadow: 0 30px 60px rgba(31, 27, 23, 0.18), 0 8px 18px rgba(31, 27, 23, 0.1); }
+
+  /* ── Steps, each with a picture ── */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .pic {
+    aspect-ratio: 4 / 3; border-radius: 14px; background: var(--tile); overflow: hidden;
+    position: relative; margin-bottom: 18px; display: grid; place-items: center;
+  }
+  .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .pic.label img { object-position: 50% 30%; transform: scale(1.25); transform-origin: 50% 30%; }
+  .pic.phone img { object-position: 50% 0; }
+  .step-n { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 0.8rem; font-weight: 800; margin-right: 8px; vertical-align: 2px; }
+  .step p { color: var(--muted); }
+
+  /* The Finder context menu, drawn in HTML. The tile shows its lower part. */
+  .menu {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    font: 13px/1 -apple-system, system-ui, sans-serif; color: #1d1d1f;
+  }
+  .menu ul {
+    list-style: none; padding: 6px; border-radius: 14px; width: 232px;
+    background: rgba(252, 252, 252, 0.97); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 12px 32px rgba(0, 0, 0, 0.16);
+  }
+  .menu li { display: flex; align-items: center; gap: 9px; padding: 0 10px; height: 25px; border-radius: 7px; white-space: nowrap; }
+  .menu li svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .menu li.sep { height: 1px; padding: 0; margin: 4px 10px; background: rgba(0, 0, 0, 0.1); }
+  .menu .chev { margin-left: auto; font-size: 15px; }
+  .menu li.on { background: #0a64d8; color: #fff; }
+
+  /* ── USPs on a dark band ── */
+  .band { background: var(--ink); color: #f6f1e9; margin: 0 calc(50% - 50vw); padding: 80px 16px; }
+  .band h2 { color: #fff; }
+  .usps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .usp svg { width: 36px; height: 36px; color: var(--kraft); fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 14px; }
+  .usp h3 { font-size: 1.25rem; margin-bottom: 8px; }
+  .usp p { color: #b9b0a3; }
+
+  /* ── Install: a shipping label ── */
+  .ship {
+    max-width: 640px; background: var(--paper); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(60, 40, 15, 0.1), 0 14px 36px rgba(60, 40, 15, 0.14);
+  }
+  .ship-body { padding: 18px 20px 6px; }
+  .ship-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 2px solid var(--ink); }
+  .ship-head b { font-size: 1.5rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.03em; font-variation-settings: "opsz" 144, "wght" 900, "wdth" 35; }
+  .badge { background: var(--ink); color: var(--paper); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 8px 3px; }
+  .ship-addr { display: grid; grid-template-columns: 1fr 1fr; }
+  .ship-addr > div { padding: 10px 0 12px; }
+  .ship-addr > div + div { border-left: 1px solid var(--ink); padding-left: 14px; }
+  .key { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .ship-addr span:last-child { font-variation-settings: "wght" 650; }
+  .cmd { display: flex; align-items: center; gap: 12px; background: var(--ink); color: var(--paper); padding: 14px 14px 14px 20px; }
+  .cmd code { flex: 1; font: 0.85rem/1.5 ui-monospace, "SF Mono", Menlo, monospace; overflow-x: auto; white-space: nowrap; }
+  .cmd code::before { content: "$ "; opacity: 0.5; }
+  .cmd button {
+    flex: none; font: inherit; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+    min-height: 36px; padding: 8px 14px; border: 0; border-radius: 4px; background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  .note { color: var(--muted); font-size: 0.95rem; margin: 18px 0 0; max-width: 640px; }
+  .more { max-width: 640px; margin-top: 20px; }
+  details { border-top: 1px solid var(--line); }
+  details:last-child { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; padding: 14px 0; font-variation-settings: "wght" 650; }
+  details > div { padding: 0 0 16px; color: var(--muted); }
+  details ol, details ul { padding-left: 1.2em; }
+  .faq details > div { line-height: 1.65; }
+  .faq details p { margin-top: 12px; }
+  .faq summary { font-size: 1.05rem; padding: 18px 0; }
+  details li + li { margin-top: 4px; }
+  details code, .note code { font: 0.9em ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
+
+  #faq { padding-top: 0; }
+  footer { padding: 32px 0 56px; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); }
+  footer .tm { margin-top: 6px; font-size: 0.8rem; opacity: 0.8; }
+
+  @media (max-width: 780px) {
+    .hero { grid-template-columns: 1fr; padding-top: 36px; }
+    .shots { height: auto; aspect-ratio: 1 / 1.05; }
+    .steps, .usps { grid-template-columns: 1fr; }
+    section { padding: 48px 0; }
+    .band { padding: 56px 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div>
+      <div class="brand"><img src="folder.png" alt=""><span>Pickup</span></div>
+      <h1>Pack it on your Mac.<br>Pick it up with your phone.</h1>
+      <p>Right-click files or a folder, and Pickup prints a QR label. Any phone on your Wi-Fi scans it and takes the files. No app, no cloud, no account.</p>
+      <div class="actions">
+        <a class="btn primary" href="#install"><svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8"/></svg>Install</a>
+        <a class="btn ghost" href="https://github.com/fgnass/pickup">Source on GitHub</a>
+      </div>
+      <div class="req">Free · macOS 14 or later · Apple silicon and Intel</div>
+    </div>
+    <div class="shots">
+      <img class="mac" src="mac-window.png" alt="The Pickup window on the Mac: a shipping label with a QR code for the folder “Trip to Lisbon”.">
+      <img class="phone" src="phone-folder.png" alt="The phone shows the same label with the folder's files and a button to get the whole parcel as ZIP.">
+    </div>
+  </header>
+
+  <section>
+    <h2>Right-click, scan, done.</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="pic finder" aria-hidden="true">
+          <div class="menu">
+            <ul>
+              <li><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M10 14l4-4m-3 0h3v3"/></svg>Open in New Tab</li>
+              <li class="sep"></li>
+              <li><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>Move to Bin</li>
+              <li class="sep"></li>
+              <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8v.01"/></svg>Get Info</li>
+              <li><svg viewBox="0 0 24 24"><path d="M6 18l2-.5 9-9-1.5-1.5-9 9z"/></svg>Rename</li>
+              <li><svg viewBox="0 0 24 24"><path d="M7 4h10v16H7z"/><path d="M12 6v2M12 10v2M11 14h2v3h-2z"/></svg>Compress “Trip to Lisbon”</li>
+              <li><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg>Quick Look</li>
+              <li class="sep"></li>
+              <li><svg viewBox="0 0 24 24"><path d="M9 9h10v11H9z"/><path d="M5 15V4h10"/></svg>Copy</li>
+              <li><svg viewBox="0 0 24 24"><path d="M12 4v11M8 8l4-4 4 4M6 12v8h12v-8"/></svg>Share…</li>
+              <li class="sep"></li>
+              <li class="plain">Quick Actions<span class="chev">›</span></li>
+              <li class="sep"></li>
+              <li class="plain">New Terminal at Folder</li>
+              <li class="plain on">Share via QR Code</li>
+            </ul>
+          </div>
+        </div>
+        <h3><span class="step-n">1</span>Pack</h3>
+        <p>Right-click files or a folder in the Finder and choose Share via QR Code at the bottom of the menu.</p>
+      </div>
+      <div class="step">
+        <div class="pic label"><img src="mac-window.png" alt=""></div>
+        <h3><span class="step-n">2</span>Scan</h3>
+        <p>A shipping label with a QR code opens on your Mac. Point the phone camera at it.</p>
+      </div>
+      <div class="step">
+        <div class="pic phone"><img src="phone-folder.png" alt=""></div>
+        <h3><span class="step-n">3</span>Pick up</h3>
+        <p>The phone shows the parcel. Save single files, open folders, or get everything as one ZIP.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <h2>Your files never leave the room.</h2>
+      <div class="usps">
+        <div class="usp">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+          <h3>Only for the phone that scans</h3>
+          <p>The QR code carries a one-time secret. Without it, the Mac sends nothing. Everything travels encrypted.</p>
+        </div>
+        <div class="usp">
+          <svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="0.6"/><path d="M2 9a14 14 0 0 1 20 0"/></svg>
+          <h3>No cloud, no account</h3>
+          <p>Mac and phone talk directly over your Wi-Fi. No server in between, no upload, not even internet access.</p>
+        </div>
+        <div class="usp">
+          <svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>
+          <h3>Nothing to install on the phone</h3>
+          <p>The camera and the browser are all it needs. Hand the label to a friend, and they have the files.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Get it.</h2>
+    <div class="ship">
+      <div class="ship-body">
+        <div class="ship-head"><b>Pickup</b><span class="badge">Free · macOS 14+</span></div>
+        <div class="ship-addr">
+          <div><span class="key">From</span><span>GitHub</span></div>
+          <div><span class="key">To</span><span>Your Applications folder</span></div>
+        </div>
+      </div>
+      <div class="cmd"><code id="cmd">curl -fsSL https://pickup.gnass.buzz/install.sh | sh</code><button type="button" id="copy">Copy</button></div>
+    </div>
+    <p class="note">Paste it into the Terminal. It installs Pickup and adds “Share via QR Code” to the Finder. Pickup is not signed with an Apple developer certificate; apps installed from the Terminal get no warning from macOS. You can <a href="install.sh">read the script</a> first.</p>
+
+    <div class="more">
+      <details>
+        <summary>Install without the Terminal</summary>
+        <div>
+          <ol>
+            <li>Download <a href="https://github.com/fgnass/pickup/releases/latest/download/Pickup.zip">Pickup.zip</a> and move <code>Pickup.app</code> into your Applications folder.</li>
+            <li>Open it. macOS says that it cannot check the app. Click <b>Done</b>.</li>
+            <li>Open <b>System Settings → Privacy &amp; Security</b>. Near the bottom, click <b>Open Anyway</b> next to Pickup.</li>
+            <li>Open the app again and confirm. You only do this once.</li>
+          </ol>
+        </div>
+      </details>
+      <details>
+        <summary>Build from source</summary>
+        <div>
+          <p>You need Go and the Xcode Command Line Tools.</p>
+          <p><code>git clone https://github.com/fgnass/pickup &amp;&amp; cd pickup &amp;&amp; ./build.sh install</code></p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section id="faq">
+    <h2>Questions.</h2>
+    <div class="more faq">
+      <details>
+        <summary>How does the transfer work, exactly?</summary>
+        <div>
+          <ol>
+            <li>When you choose Share via QR Code, Pickup starts a small web server on your Mac. It listens on a random port of the Mac's local network address only. For this share, Pickup makes a new key pair and a random 128-bit secret.</li>
+            <li>The QR code holds a link like <code>http://192.168.1.20:52814/#…</code>. The part after <code>#</code> carries the secret and the fingerprint of the Mac's key. A browser never sends this part over the network; it stays on the phone.</li>
+            <li>The phone loads the page from the Mac and opens a direct WebRTC connection to it. There is no server in between and no internet involved. The connection is encrypted with DTLS.</li>
+            <li>Before it trusts the connection, the page checks that the Mac's key matches the fingerprint from the QR code. So the phone knows it talks to your Mac and not to another device.</li>
+            <li>Only then the phone sends the secret, inside the encrypted connection. The Mac compares it. A device without the secret gets nothing and is disconnected after 15 seconds.</li>
+            <li>File lists, previews and files travel over this connection. A ZIP is packed on the fly while it is sent; nothing is written to disk.</li>
+            <li>The share ends when you close the window. It also ends by itself: a single file after the download, folders 10 minutes after the last phone left, or 30 minutes after start if nobody scanned the code. Then the secret and the key are gone.</li>
+          </ol>
+          <p>The source code is on <a href="https://github.com/fgnass/pickup">GitHub</a>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>What is not protected?</summary>
+        <div>
+          <ul>
+            <li><b>The page itself.</b> The phone loads the page (HTML and JavaScript) over plain HTTP, because a local address can get no trusted certificate. Someone who only listens on your Wi-Fi sees the page code, but no secret and no file data. But an attacker who can actively change traffic in your network could swap the page for a fake one and so get the secret and the files. So use Pickup on networks you trust, such as your home or office Wi-Fi, not on public hotspots.</li>
+            <li><b>The QR code.</b> Whoever sees the code can pick up the files while the share is open: over your shoulder, in a screenshot or in a screen share. Close the window to stop sharing at once.</li>
+            <li><b>Your network can see that something happens.</b> Other devices can see that your Mac runs a web server and how much data goes to the phone. They cannot see names or contents.</li>
+            <li><b>The app is not signed by Apple.</b> macOS does not check it. You trust the code on GitHub and the release built from it. You can read the source and build it yourself.</li>
+          </ul>
+        </div>
+      </details>
+      <details>
+        <summary>“Share via QR Code” is not in the menu</summary>
+        <div>
+          <p>Open <b>System Settings → Keyboard → Keyboard Shortcuts → Services → Files and Folders</b> and turn on <b>Share via QR Code</b>. You can also give it a shortcut there.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <footer>
+    <p>Pickup by Felix Gnass · <a href="https://github.com/fgnass/pickup">GitHub</a> · <a href="https://github.com/fgnass/pickup/blob/main/LICENSE">MIT License</a> · <a href="privacy.html">Privacy</a></p>
+    <p class="tm">Mac and Finder are trademarks of Apple Inc. Pickup is not affiliated with Apple.</p>
+  </footer>
+</div>
+<script>
+  const btn = document.getElementById('copy');
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById('cmd').textContent);
+      btn.textContent = 'Copied';
+    } catch {
+      getSelection().selectAllChildren(document.getElementById('cmd'));
+      btn.textContent = 'Press ⌘C';
+    }
+    setTimeout(() => (btn.textContent = 'Copy'), 2000);
+  });
+</script>
+</body>
+</html>
