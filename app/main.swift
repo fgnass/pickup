@@ -454,7 +454,7 @@ struct SessionView: View {
         case .starting:
             Text("Starting…")
         case .waiting:
-            Label("Scan with your phone camera", systemImage: "camera.viewfinder")
+            Label("Scan from the same Wi-Fi", systemImage: "camera.viewfinder")
         case .connected(let n):
             Label(n > 1 ? "\(n) phones connected" : "Phone connected", systemImage: "checkmark.circle.fill")
         case let .sending(name, sent, total, index, files):
