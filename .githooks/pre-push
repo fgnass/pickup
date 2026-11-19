@@ -1,0 +1,35 @@
+#!/bin/sh
+# Reminds you of changes that are not released yet. release-please collects the
+# feat: and fix: commits on main in a release pull request. Merge it to publish them.
+# Turn it on once per clone: git config core.hooksPath .githooks
+
+zero=0000000000000000000000000000000000000000
+sha=
+while read -r _ local_sha remote_ref _; do
+  [ "$remote_ref" = refs/heads/main ] && [ "$local_sha" != "$zero" ] && sha=$local_sha
+done
+[ -n "$sha" ] || exit 0
+
+# Releases are tagged on GitHub, so get the tags first. Before the first release
+# made by release-please, count from its bootstrap commit.
+git fetch --quiet --tags origin 2>/dev/null
+if last=$(git describe --tags --abbrev=0 --match 'v*.*.*' "$sha" 2>/dev/null); then
+  range="$last..$sha"
+else
+  base=$(sed -n 's/.*"bootstrap-sha": *"\([0-9a-f]*\)".*/\1/p' release-please-config.json)
+  [ -n "$base" ] || exit 0
+  range="$base..$sha"
+  last="the last release"
+fi
+
+count=$(git log --format=%s "$range" | grep -cE '^(feat|fix)(\([^)]*\))?!?:')
+[ "$count" -gt 0 ] || exit 0
+
+repo=$(git remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')
+pr=$(gh pr list --repo "$repo" --label "autorelease: pending" --json url --jq '.[0].url' 2>/dev/null)
+echo
+echo "Not released yet: $count change(s) since $last."
+echo "Merge the release pull request to publish them:"
+echo "  ${pr:-https://github.com/$repo/pulls}"
+echo
+exit 0

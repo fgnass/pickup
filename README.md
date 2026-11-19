@@ -67,6 +67,17 @@ Gatekeeper warning.
 
 The photos in the screenshots on the project page are from [Unsplash](https://unsplash.com/s/photos/lisbon) (Unsplash License).
 
+## Releases
+
+Releases are made by [release-please](https://github.com/googleapis/release-please)
+from the commit messages: `fix:` makes a patch release, `feat:` a minor release.
+After each push to `main`, a GitHub Action keeps a release pull request up to date
+with the next version and the changelog. Merge it to publish the release. A second
+job then builds the app on macOS and attaches `Pickup.zip` to it.
+
+To be reminded of unreleased changes when you push, turn on the hook in `.githooks`
+once per clone: `git config core.hooksPath .githooks`
+
 ## License
 
 MIT, see [LICENSE](LICENSE). The Roboto Flex font is licensed under the SIL Open

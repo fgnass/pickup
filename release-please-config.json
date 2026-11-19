@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "8812d6c08dff6f8637071c6075c54bfd996e7858",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "pickup",
+      "include-component-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "app/Info.plist"
+        }
+      ]
+    }
+  }
+}
