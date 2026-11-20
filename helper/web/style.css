@@ -179,6 +179,10 @@ svg.folder { fill: currentColor; fill-opacity: 0.12; }
 .foot { position: sticky; bottom: 0; margin-top: auto; padding-top: 4px; }
 .foot .primary { padding-bottom: env(safe-area-inset-bottom); min-height: calc(52px + env(safe-area-inset-bottom)); }
 .zip { display: flex; flex-direction: column; }
+/* Two actions side by side, split by a thin light rule. */
+.foot.split { display: flex; }
+.foot.split .primary { flex: 1; min-width: 0; padding: 0 10px; gap: 8px; }
+.foot.split .primary + .primary { box-shadow: inset 1px 0 rgba(255, 255, 255, 0.2); }
 .primary {
   display: flex;
   align-items: center;

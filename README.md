@@ -9,6 +9,9 @@ The other way round: right-click a folder and choose **Receive via QR Code**.
 The phone can then send files into that folder. It cannot see what is already
 in the folder, and it never replaces a file: a name that exists gets a number
 (`photo 2.jpg`). Open the Pickup app itself to receive into Downloads.
+On a phone, **Take photo** opens the camera and sends each photo to the Mac at
+once, named after the time it was taken. Photos (JPEG, HEIC) get the capture
+time from their EXIF data as their file date.
 
 Text works too: select text in any app, right-click and choose **Share Text via
 QR Code**. Or open the Pickup app, paste text into its window and press Return

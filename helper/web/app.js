@@ -684,6 +684,31 @@ picker.onchange = () => {
 };
 document.body.append(picker);
 
+// Opens the camera directly. Each photo goes to the Mac at once; the button
+// stays for the next one.
+const camera = h("input", { type: "file", accept: "image/*", capture: "environment", hidden: true });
+camera.onchange = () => {
+  for (const file of camera.files) addUpload(file, photoName(file));
+  camera.value = "";
+  if (S.pumping && S.dc?.readyState === "open") send({ t: "run", run: runInfo() });
+  pump();
+};
+document.body.append(camera);
+
+// Only phones and tablets have a camera button; on a computer it would open
+// the same file dialog as the other button.
+const hasCamera = matchMedia("(pointer: coarse)").matches;
+
+// The camera gives every photo the same name ("image.jpg" on iPhone) or a
+// number. Name it after the time it was taken, like the Mac does for
+// screenshots. The Mac adds a number if the name exists.
+function photoName(file) {
+  const d = new Date(file.lastModified || Date.now());
+  const p = (n) => String(n).padStart(2, "0");
+  const ext = (/\.[a-z0-9]{2,5}$/i.exec(file.name)?.[0] || (file.type === "image/png" ? ".png" : ".jpg")).toLowerCase();
+  return `Photo ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} at ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}${ext}`;
+}
+
 // A run is all files sent since the queue was last empty. The Mac shows its
 // total progress. Failed files leave the run, so it can still reach 100%.
 function runInfo() {
@@ -710,9 +735,9 @@ function leaveRun(up, delivered) {
   }
 }
 
-function addUpload(file) {
+function addUpload(file, name = file.name) {
   const up = {
-    file, state: "queued", sent: 0, error: null, savedAs: null, preview: null, listeners: new Set(),
+    file, name, state: "queued", sent: 0, error: null, savedAs: null, preview: null, listeners: new Set(),
     notify() { for (const f of up.listeners) f(up); },
   };
   if (/^image\//.test(file.type)) up.preview = URL.createObjectURL(file);
@@ -746,7 +771,7 @@ async function sendFile(up) {
   up.notify();
   dc.bufferedAmountLowThreshold = LOW;
   try {
-    send({ t: "put", id, name: file.name, size: file.size, mtime: file.lastModified || 0, run: runInfo() });
+    send({ t: "put", id, name: up.name, size: file.size, mtime: file.lastModified || 0, run: runInfo() });
     for (let off = 0; off < file.size; ) {
       const buf = new Uint8Array(await file.slice(off, off + READ).arrayBuffer());
       for (let i = 0; i < buf.length; i += FRAME - 4) {
@@ -805,12 +830,17 @@ function renderInbox() {
   );
   const list = h("ul", { class: "files" }, ...ups.map(upRow));
   if (!ups.length) list.append(h("li", { class: "empty" }, "Nothing sent yet."));
-  const btn = h("button", { class: "primary", onclick: () => picker.click() }, svg(ICONS.upload), "Choose files to send");
-  mount(textSection(), head, list, h("div", { class: "foot" }, btn));
+  const foot = hasCamera
+    ? h("div", { class: "foot split" },
+        h("button", { class: "primary", onclick: () => camera.click() }, svg(ICONS.camera), "Take photo"),
+        h("button", { class: "primary", onclick: () => picker.click() }, svg(ICONS.upload), "Choose files"))
+    : h("div", { class: "foot" },
+        h("button", { class: "primary", onclick: () => picker.click() }, svg(ICONS.upload), "Choose files to send"));
+  mount(textSection(), head, list, foot);
 }
 
 function upRow(up) {
-  const name = display(up.file.name);
+  const name = display(up.name);
   const meta = h("span", { class: "meta" });
   const bar = progressBar();
   const status = h("span", { class: "status" });
@@ -828,7 +858,7 @@ function upRow(up) {
       up.state === "queued" ? `${fmtSize(up.file.size)} · Waiting` :
       up.state === "saving" ? "Saving…" :
       up.state === "error" ? `${up.error} · Tap to try again` :
-      up.savedAs && up.savedAs !== up.file.name.normalize("NFC") ? `Saved as ${display(up.savedAs)}` : `${fmtSize(up.file.size)} · Delivered`;
+      up.savedAs && up.savedAs !== up.name.normalize("NFC") ? `Saved as ${display(up.savedAs)}` : `${fmtSize(up.file.size)} · Delivered`;
     nameEl.classList.toggle("err", up.state === "error");
     status.replaceChildren(up.state === "done" ? svg(ICONS.check) : up.state === "error" ? svg(ICONS.retry) : "");
     li.classList.toggle("done", up.state === "done");
@@ -955,6 +985,7 @@ const ICONS = {
   upload: "M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 19h14",
   retry: "M4 12a8 8 0 1 0 2.5-5.8M4 4v4.5h4.5",
   copy: "M9 9h10v11H9zM15 9V4H5v11h4",
+  camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z",
   open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
 };
 

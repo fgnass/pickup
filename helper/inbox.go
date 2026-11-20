@@ -122,6 +122,10 @@ func (in *inbox) commit(u *upload) (string, error) {
 	quarantine(u.f)
 	err := u.f.Close()
 	u.f = nil
+	// A photo gets the time it was taken, not the time it was exported.
+	if t, ok := photoTime(in.root, u.part, u.name); err == nil && ok {
+		u.mtime = t
+	}
 	if err == nil && !u.mtime.IsZero() {
 		in.root.Chtimes(u.part, time.Now(), u.mtime)
 	}
