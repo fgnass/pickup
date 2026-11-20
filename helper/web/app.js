@@ -31,6 +31,7 @@ const S = {
   sending: new Map(),   // request id -> upload
   pumping: false,
   run: null,            // the current batch, for the total progress on the Mac
+  texts: [],            // text from the Mac: {id, text, copied}, oldest first
 };
 
 const banner = document.createElement("div");
@@ -216,6 +217,7 @@ function onMessage(e) {
       S.hello = m;
       S.retried = false;
       hideBanner();
+      setTexts(m.texts || []);
       if (m.mode === "receive") {
         fromEl.textContent = "This phone";
         toEl.textContent = m.name || "Your Mac";
@@ -259,6 +261,14 @@ function onMessage(e) {
       if (dl) finish(dl);
       break;
     }
+    case "text":
+      setTexts([...S.texts, m]);
+      if (S.hello?.mode === "receive") {
+        renderInbox();
+        scrollTo({ top: 0, behavior: "smooth" });
+        toast("New text from your Mac");
+      } else render();
+      break;
     case "folder":
       // The Mac user picked another folder for new files.
       if (S.hello?.mode === "receive") { S.hello.folder = m.folder; renderInbox(); }
@@ -424,6 +434,7 @@ addEventListener("popstate", (e) => {
 function render() {
   if (!S.hello) return;
   if (S.hello.mode === "receive") return renderInbox();
+  if (S.hello.mode === "text") return renderText();
   if (S.loc === null) S.loc = rootLoc();
   const items = S.hello.items;
   if (!S.loc) {
@@ -542,6 +553,119 @@ function row(e) {
   update();
   li.onclick = () => download(key, { t: "get", item: e.item, path: e.path }, e.name);
   return li;
+}
+
+// ── Text from the Mac ──
+// The page comes over plain HTTP, so navigator.clipboard is not available.
+// execCommand("copy") still works, but only inside a tap handler.
+
+function setTexts(list) {
+  const old = new Map(S.texts.map((t) => [t.id, t]));
+  S.texts = list.map((t) => ({ id: t.id, text: t.text, copied: old.get(t.id)?.copied || false }));
+}
+
+function copyToClipboard(text) {
+  const ta = h("textarea", { readonly: true, class: "clip", "aria-hidden": "true" });
+  ta.value = text;
+  document.body.append(ta);
+  ta.select();
+  ta.setSelectionRange(0, text.length); // iOS ignores select()
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch {}
+  ta.remove();
+  getSelection()?.removeAllRanges();
+  return ok;
+}
+
+// Only plain web links get an "Open" button; never javascript: or data: URLs.
+function linkOf(text) {
+  const t = text.trim();
+  if (!/^https?:\/\/\S+$/i.test(t)) return null;
+  try { return new URL(t).href; } catch { return null; }
+}
+
+// Copy and tell the Mac. Returns false when the browser refused.
+function copy(t) {
+  if (!copyToClipboard(t.text)) {
+    toast("Could not copy. Select the text and copy it by hand.");
+    return false;
+  }
+  delivered(t);
+  return true;
+}
+
+const COPIED = "Copied. Your Mac has stopped sharing.";
+
+function delivered(t) {
+  t.copied = true;
+  if (S.dc?.readyState === "open") send({ t: "copied", id: t.id });
+  // One text was shared: like a single file, the Mac can stop now.
+  if (S.hello?.mode === "text" && !S.finished) {
+    S.finished = true;
+    showBanner(COPIED);
+    setTimeout(closeConn, 300);
+  }
+}
+
+// A short flash on the button that was tapped.
+function flash(btn, text) {
+  const old = [...btn.childNodes];
+  btn.replaceChildren(svg(ICONS.check), text);
+  clearTimeout(btn.flashTimer);
+  btn.flashTimer = setTimeout(() => btn.replaceChildren(...old), 1800);
+}
+
+function textBody(t) {
+  return h("div", { class: "textbody" }, t.text);
+}
+
+function textMeta(t) {
+  const lines = t.text.split("\n").length;
+  return [plural([...t.text].length, "character"), lines > 1 && plural(lines, "line")].filter(Boolean).join(" · ");
+}
+
+function openButton(t, cls) {
+  const href = linkOf(t.text);
+  if (!href) return null;
+  return h("a", { class: cls, href, target: "_blank", rel: "noopener noreferrer", onclick: () => delivered(t) },
+    svg(ICONS.open), "Open link");
+}
+
+// Text mode: one text, shared with "Share Text via QR Code".
+function renderText() {
+  const t = S.texts[S.texts.length - 1];
+  if (!t) return showStatus("", "Waiting for the text…", { spin: true, inline: true });
+  const head = h("div", { class: "head" },
+    h("div", { class: "title" },
+      h("span", { class: "k" }, "Contents"),
+      h("h2", {}, linkOf(t.text) ? "Link" : "Text"),
+      h("p", { class: "meta" }, textMeta(t)),
+    ),
+  );
+  const btn = h("button", { class: "primary" }, svg(ICONS.copy), linkOf(t.text) ? "Copy link" : "Copy text");
+  btn.onclick = () => { if (copy(t)) flash(btn, "Copied"); };
+  const open = openButton(t, "chip");
+  mount(head,
+    h("div", { class: "textcard big" }, textBody(t), open && h("div", { class: "chips" }, open)),
+    h("div", { class: "foot" }, btn));
+  if (S.finished) showBanner(COPIED);
+}
+
+// Receive mode: texts from the Mac above the drop-off, newest first.
+function textSection() {
+  if (!S.texts.length) return null;
+  const cards = [...S.texts].reverse().map((t) => {
+    const btn = h("button", { class: "chip" }, svg(ICONS.copy), "Copy");
+    btn.onclick = () => { if (copy(t)) flash(btn, "Copied"); };
+    return h("div", { class: "textcard" },
+      textBody(t),
+      h("div", { class: "chips" }, btn, openButton(t, "chip")));
+  });
+  return h("section", { class: "texts" },
+    h("div", { class: "head" }, h("div", { class: "title" },
+      h("span", { class: "k" }, "From the Mac"),
+      h("h2", {}, S.texts.length > 1 ? plural(S.texts.length, "text") : "Text"))),
+    ...cards);
 }
 
 // ── Drop-off (receive mode): the phone sends files to a folder on the Mac ──
@@ -682,7 +806,7 @@ function renderInbox() {
   const list = h("ul", { class: "files" }, ...ups.map(upRow));
   if (!ups.length) list.append(h("li", { class: "empty" }, "Nothing sent yet."));
   const btn = h("button", { class: "primary", onclick: () => picker.click() }, svg(ICONS.upload), "Choose files to send");
-  mount(head, list, h("div", { class: "foot" }, btn));
+  mount(textSection(), head, list, h("div", { class: "foot" }, btn));
 }
 
 function upRow(up) {
@@ -830,6 +954,8 @@ const ICONS = {
   parcel: "M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8",
   upload: "M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 19h14",
   retry: "M4 12a8 8 0 1 0 2.5-5.8M4 4v4.5h4.5",
+  copy: "M9 9h10v11H9zM15 9V4H5v11h4",
+  open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
 };
 
 const KINDS = {

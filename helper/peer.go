@@ -108,7 +108,11 @@ func (p *peer) auth(req request) {
 	p.authed.Store(true)
 	p.s.peerAuthed(p)
 	if p.s.receive {
-		p.sendJSON(map[string]any{"t": "hello", "name": p.s.name, "mode": "receive", "folder": nfc(p.s.dropOff().name)})
+		p.sendJSON(map[string]any{"t": "hello", "name": p.s.name, "mode": "receive", "folder": nfc(p.s.dropOff().name), "texts": p.s.textList()})
+		return
+	}
+	if p.s.textOnly {
+		p.sendJSON(map[string]any{"t": "hello", "name": p.s.name, "mode": "text", "texts": p.s.textList()})
 		return
 	}
 	p.sendJSON(map[string]any{
@@ -131,6 +135,13 @@ func (p *peer) close() {
 }
 
 func (p *peer) handle(req request) {
+	if req.T == "copied" {
+		p.s.textCopied(int(req.ID))
+		return
+	}
+	if p.s.textOnly {
+		return
+	}
 	if p.s.receive {
 		p.handleReceive(req)
 		return
@@ -218,7 +229,7 @@ func (p *peer) sendErr(id uint32, err error) {
 }
 
 func (p *peer) sendJSON(v any) {
-	b, _ := json.Marshal(v)
+	b := marshal(v)
 	p.sendMu.Lock()
 	p.dc.SendText(string(b))
 	p.sendMu.Unlock()

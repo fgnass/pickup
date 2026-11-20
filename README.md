@@ -10,6 +10,13 @@ The phone can then send files into that folder. It cannot see what is already
 in the folder, and it never replaces a file: a name that exists gets a number
 (`photo 2.jpg`). Open the Pickup app itself to receive into Downloads.
 
+Text works too: select text in any app, right-click and choose **Share Text via
+QR Code**. Or open the Pickup app, paste text into its window and press Return
+(Option-Return for a new line); the phone gets every text you send while the
+window is open. The phone shows the text with a **Copy** button (and **Open link**
+for a web address). The page comes over plain HTTP, where browsers allow copying
+only after a tap, so one tap on the phone is always necessary.
+
 Everything stays on the local network. The phone needs no app and no internet.
 
 **Website:** https://pickup.gnass.buzz
@@ -37,6 +44,8 @@ Security:
 - The phone checks that the Mac's DTLS fingerprint matches the one from the QR
   code, then sends the secret inside the encrypted data channel. Without the
   secret, the Mac closes the connection after 15 seconds and sends nothing.
+- Texts travel in the same data channel. The helper keeps them only in memory
+  and only as long as the window is open.
 - Folder access goes through `os.Root`, so no path or symlink can leave the
   shared folder. Hidden files are not shared.
 - Received files go to a hidden part file first and get their name only when

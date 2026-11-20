@@ -27,6 +27,7 @@ const (
 type server struct {
 	share       *share
 	receive     bool // receive mode: the phone drops files into inbox
+	textOnly    bool // text mode: no files, only texts from the Mac
 	name        string
 	api         *webrtc.API
 	cert        webrtc.Certificate
@@ -36,6 +37,7 @@ type server struct {
 	mu        sync.Mutex
 	inbox     *inbox         // receive mode; the user can change it while phones are connected
 	peers     map[*peer]bool // authenticated phones
+	texts     []textItem     // texts from the Mac, in order
 	pending   int
 	connected int
 	used      bool        // a phone was connected at least once
@@ -200,7 +202,7 @@ func (s *server) peerClosed(p *peer, wasAuthed bool) {
 		return
 	}
 	emit("peers", map[string]any{"count": n})
-	// A single file that the phone has: nothing left to share.
+	// A single file or text that the phone has: nothing left to share.
 	if n == 0 && delivered {
 		end("delivered")
 	}
@@ -229,14 +231,20 @@ func (s *server) dropOff() *inbox {
 func (s *server) setDropOff(in *inbox) {
 	s.mu.Lock()
 	s.inbox = in
-	peers := make([]*peer, 0, len(s.peers))
-	for p := range s.peers {
-		peers = append(peers, p)
-	}
+	peers := s.peerList()
 	s.mu.Unlock()
 	for _, p := range peers {
 		p.sendJSON(map[string]any{"t": "folder", "folder": nfc(in.name)})
 	}
+}
+
+// peerList returns the authenticated phones. Call with mu held.
+func (s *server) peerList() []*peer {
+	peers := make([]*peer, 0, len(s.peers))
+	for p := range s.peers {
+		peers = append(peers, p)
+	}
+	return peers
 }
 
 // startIdleTimer arms the timer that ends an unused share.

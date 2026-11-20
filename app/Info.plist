@@ -77,6 +77,23 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Share Text via QR Code</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>shareTextViaQRCode</string>
+			<key>NSPortName</key>
+			<string>Pickup</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

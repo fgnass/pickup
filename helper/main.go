@@ -62,9 +62,16 @@ func main() {
 	name := flag.String("name", "", "name of this Mac, shown on the phone")
 	ipFlag := flag.String("ip", "", "local IPv4 address to use (default: auto)")
 	receive := flag.String("receive", "", "let the phone drop files into this folder instead of sharing PATHs")
+	text := flag.Bool("text", false, "share text that arrives as commands on stdin instead of PATHs")
 	flag.Parse()
-	if (flag.NArg() == 0) == (*receive == "") {
-		fmt.Fprintln(os.Stderr, "usage: pickup-helper [-name NAME] [-ip IP] PATH...\n       pickup-helper [-name NAME] [-ip IP] -receive FOLDER")
+	modes := 0
+	for _, on := range []bool{flag.NArg() > 0, *receive != "", *text} {
+		if on {
+			modes++
+		}
+	}
+	if modes != 1 {
+		fmt.Fprintln(os.Stderr, "usage: pickup-helper [-name NAME] [-ip IP] PATH...\n       pickup-helper [-name NAME] [-ip IP] -receive FOLDER\n       pickup-helper [-name NAME] [-ip IP] -text")
 		os.Exit(2)
 	}
 
@@ -73,9 +80,10 @@ func main() {
 		in  *inbox
 		err error
 	)
-	if *receive != "" {
+	switch {
+	case *receive != "":
 		in, err = newInbox(*receive)
-	} else {
+	case flag.NArg() > 0:
 		sh, err = newShare(flag.Args())
 	}
 	if err != nil {
@@ -97,6 +105,7 @@ func main() {
 	}
 	srv.receive = in != nil
 	srv.inbox = in
+	srv.textOnly = *text
 
 	ln, err := net.Listen("tcp4", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
@@ -108,10 +117,11 @@ func main() {
 	frag := base64.RawURLEncoding.EncodeToString(append(append([]byte{}, srv.secret...), srv.fingerprint...))
 	url := fmt.Sprintf("http://%s:%d/#%s", ip, port, frag)
 
-	var title, subtitle string
-	if in != nil {
+	title, subtitle := "Text", ""
+	switch {
+	case in != nil:
 		title, subtitle = in.summary()
-	} else {
+	case sh != nil:
 		title, subtitle = sh.summary()
 	}
 	emit("ready", map[string]any{"url": url, "title": title, "subtitle": subtitle, "receive": in != nil})
@@ -133,13 +143,28 @@ func main() {
 // commands reads JSON lines from the macOS app until r ends.
 //
 //	{"folder": "/path"}  receive mode: save new files in this folder
+//	{"text": "..."}      text and receive mode: give this text to the phone
 func commands(s *server, r io.Reader) {
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		var cmd struct {
-			Folder string `json:"folder"`
+			Folder string  `json:"folder"`
+			Text   *string `json:"text"`
 		}
-		if json.Unmarshal(sc.Bytes(), &cmd) != nil || cmd.Folder == "" || !s.receive {
+		if json.Unmarshal(sc.Bytes(), &cmd) != nil {
+			continue
+		}
+		if cmd.Text != nil && (s.receive || s.textOnly) {
+			n, err := s.addText(*cmd.Text)
+			if err != nil {
+				emit("text-failed", map[string]any{"message": err.Error()})
+			} else {
+				emit("text-sent", map[string]any{"peers": n})
+			}
+			continue
+		}
+		if cmd.Folder == "" || !s.receive {
 			continue
 		}
 		in, err := newInbox(cmd.Folder)

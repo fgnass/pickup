@@ -8,6 +8,9 @@
 //
 // "Receive via QR Code" on a folder turns the direction around: the phone
 // drops files into that folder.
+//
+// "Share Text via QR Code" on selected text gives the phone that text to copy.
+// The window that opens with the app itself can also send text to the phone.
 
 import AppKit
 import CoreImage.CIFilterBuiltins
@@ -26,6 +29,10 @@ final class Session {
         case sending(name: String, sent: Int64, total: Int64, index: Int, files: Int)
         case sent(name: String)
         case received(name: String, count: Int)
+        /// Text went to this many phones (0: it waits for the next phone).
+        case textSent(phones: Int)
+        /// A phone copied or opened the text.
+        case copied
         case failed(String)
         case ended(delivered: Bool)
     }
@@ -38,6 +45,8 @@ final class Session {
     var phase: Phase = .starting
     /// Receive mode: the phone sends files into a folder on this Mac.
     let receiving: Bool
+    /// Text mode: the phone gets one text, no files.
+    let textMode: Bool
     /// Receive mode: the folder the phone drops files into. The user can change it.
     private(set) var folder: URL?
     /// Started from the app itself, not from a Finder service: a folder the
@@ -56,17 +65,32 @@ final class Session {
 
     init(urls: [URL], receive: Bool = false, isDefault: Bool = false) {
         receiving = receive
+        textMode = false
         self.isDefault = isDefault
         folder = receive ? urls[0].standardizedFileURL : nil
         title = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items"
+        launch(receive ? ["-name", from, "-receive", urls[0].path] : ["-name", from, "--"] + urls.map(\.path))
+    }
+
+    /// Text mode: share one text, for example the selection in any app.
+    init(text: String) {
+        receiving = false
+        textMode = true
+        isDefault = false
+        title = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let n = text.count
+        subtitle = n == 1 ? "1 character" : "\(n.formatted()) characters"
+        launch(["-name", from, "-text"])
+        sendText(text)
+    }
+
+    private func launch(_ arguments: [String]) {
         guard let helper = Bundle.main.url(forAuxiliaryExecutable: "pickup-helper") else {
             phase = .failed("The helper is missing from the app bundle.")
             return
         }
         process.executableURL = helper
-        process.arguments = receive
-            ? ["-name", from, "-receive", urls[0].path]
-            : ["-name", from, "--"] + urls.map(\.path)
+        process.arguments = arguments
         process.standardInput = stdin
         let out = Pipe()
         process.standardOutput = out
@@ -88,8 +112,19 @@ final class Session {
     /// Receive mode: save new files in another folder. The QR code and the
     /// connection to the phone stay the same.
     func changeFolder(to url: URL) {
-        guard receiving, process.isRunning,
-              let line = try? JSONSerialization.data(withJSONObject: ["folder": url.path])
+        guard receiving else { return }
+        command(["folder": url.path])
+    }
+
+    /// Text and receive mode: give this text to the phones. The helper keeps
+    /// it for phones that connect later.
+    func sendText(_ text: String) {
+        command(["text": text])
+    }
+
+    private func command(_ cmd: [String: String]) {
+        guard process.isRunning,
+              let line = try? JSONSerialization.data(withJSONObject: cmd)
         else { return }
         stdin.fileHandleForWriting.write(line + Data([0x0A]))
     }
@@ -118,8 +153,10 @@ final class Session {
         switch e["type"] as? String {
         case "ready":
             url = e["url"] as? String
-            title = e["title"] as? String ?? title
-            subtitle = e["subtitle"] as? String ?? ""
+            if !textMode {
+                title = e["title"] as? String ?? title
+                subtitle = e["subtitle"] as? String ?? ""
+            }
             if let folder { subtitle = Self.displayPath(folder) }
             phase = .waiting
         case "folder":
@@ -151,6 +188,21 @@ final class Session {
                 phase = received.isEmpty ? (peers > 0 ? .connected(peers) : .waiting)
                                          : .received(name: received.last!.lastPathComponent, count: received.count)
             }
+        case "text-sent":
+            // In text mode, the status shows the phone, not the text.
+            if receiving { phase = .textSent(phones: Int(num("peers"))) }
+        case "text-failed":
+            let msg = e["message"] as? String ?? "The text could not be sent."
+            if textMode {
+                phase = .failed(msg.prefix(1).uppercased() + msg.dropFirst() + ".")
+            } else {
+                let alert = NSAlert()
+                alert.messageText = "Pickup cannot send this text."
+                alert.informativeText = msg.prefix(1).uppercased() + msg.dropFirst() + "."
+                alert.runModal()
+            }
+        case "copied":
+            phase = .copied
         case "ended":
             phase = .ended(delivered: receiving ? !received.isEmpty : e["reason"] as? String == "delivered")
             // Let the user see the stamp, then close the window.
@@ -268,6 +320,8 @@ struct Key: View {
 
 struct SessionView: View {
     let session: Session
+    /// Default window: the text for the phone that is not sent yet.
+    @State private var draft = ""
 
     var body: some View {
         // Only the label sits on the kraft paper; the status is part of it.
@@ -341,6 +395,9 @@ struct SessionView: View {
             Rectangle().fill(Kraft.ink).frame(height: 1)
             if session.receiving {
                 destination
+                if session.isDefault { composer }
+            } else if session.textMode {
+                textContents
             } else {
                 contents
             }
@@ -382,6 +439,63 @@ struct SessionView: View {
         // activates. The system ring around the whole block looks broken.
         .focusEffectDisabled()
         .help("Choose the folder for files from the phone")
+        .padding(.top, 8)
+    }
+
+    /// Default window: a text field. Return sends the text to the phone,
+    /// Option-Return makes a new line.
+    var composer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Rectangle().fill(Kraft.ink).frame(height: 1).padding(.top, 10)
+            Key("Send text").padding(.top, 7)
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Paste text, press Return", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13.5))
+                    .lineLimit(1...6)
+                    .onSubmit(sendDraft)
+                Button(action: sendDraft) {
+                    Text("Send")
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .tracking(1)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Kraft.ink, lineWidth: 1.5))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .disabled(isBlank)
+                .opacity(isBlank ? 0.35 : 1)
+                .help("Send the text to the phone (Return)")
+            }
+        }
+    }
+
+    var isBlank: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    func sendDraft() {
+        guard !isBlank else { return }
+        session.sendText(draft)
+        draft = ""
+    }
+
+    /// Text mode: the start of the text.
+    var textContents: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Key("Text")
+                Text(session.title)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .lineLimit(3)
+                    .truncationMode(.tail)
+                Text(session.subtitle)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Kraft.muted)
+            }
+            Spacer(minLength: 0)
+        }
         .padding(.top, 8)
     }
 
@@ -489,6 +603,10 @@ struct SessionView: View {
             Label(count > 1 ? "Received \(count) files" : "Received \(name)", systemImage: "tray.and.arrow.down.fill")
                 .lineLimit(1)
                 .truncationMode(.middle)
+        case .textSent(let phones):
+            Label(phones > 0 ? "Text sent to the phone" : "Text waits for the phone", systemImage: "text.bubble.fill")
+        case .copied:
+            Label("Copied on the phone", systemImage: "checkmark.circle.fill")
         case .ended(let delivered):
             if session.receiving {
                 Text("Drop-off closed")
@@ -524,6 +642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.servicesProvider = self
+        NSApp.mainMenu = Self.editMenu()
         NSUpdateDynamicServices()
         // Started without files (for example from the Applications folder):
         // receive into Downloads. A Finder service call arrives just after
@@ -531,6 +650,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             if self.sessions.isEmpty { self.receiveInDefaultFolder() }
         }
+    }
+
+    /// The app shows no menu bar, but the text field needs the key
+    /// equivalents of an Edit menu (⌘V and the others).
+    private static func editMenu() -> NSMenu {
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let item = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        item.submenu = edit
+        let main = NSMenu()
+        main.addItem(item)
+        return main
     }
 
     /// Opened again while it runs: show the default drop-off.
@@ -594,9 +731,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         start(urls, receive: true)
     }
 
+    /// Service entry point (NSMessage "shareTextViaQRCode" in Info.plist):
+    /// selected text in any app.
+    @objc func shareTextViaQRCode(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        guard let text = pboard.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            error.pointee = "No text selected." as NSString
+            return
+        }
+        show(Session(text: text))
+    }
+
     private func start(_ urls: [URL], receive: Bool = false, isDefault: Bool = false) {
         guard !urls.isEmpty else { return }
-        let session = Session(urls: urls, receive: receive, isDefault: isDefault)
+        show(Session(urls: urls, receive: receive, isDefault: isDefault))
+    }
+
+    private func show(_ session: Session) {
         let window = SessionWindow(
             contentRect: .zero,
             styleMask: [.titled, .closable, .fullSizeContentView],
