@@ -322,6 +322,7 @@ struct SessionView: View {
     let session: Session
     /// Default window: the text for the phone that is not sent yet.
     @State private var draft = ""
+    @State private var hoverFolder = false
 
     var body: some View {
         // Only the label sits on the kraft paper; the status is part of it.
@@ -346,6 +347,7 @@ struct SessionView: View {
                 .frame(maxWidth: .infinity, minHeight: 36)
                 .padding(.horizontal, 12)
                 .background(isFailed ? Kraft.stamp : Kraft.ink)
+                .modifier(ReceivedAction(files: receivedFiles))
         }
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -355,6 +357,13 @@ struct SessionView: View {
                 .shadow(color: Color(red: 0.24, green: 0.16, blue: 0.06).opacity(0.12), radius: 1.5, y: 1)
                 .shadow(color: Color(red: 0.24, green: 0.16, blue: 0.06).opacity(0.24), radius: 16, y: 8)
         )
+    }
+
+    /// Receive mode: the files the strip at the bottom stands for, once the
+    /// phone dropped some off.
+    var receivedFiles: [URL] {
+        if case .received = session.phase { return session.received }
+        return []
     }
 
     var isFailed: Bool {
@@ -405,40 +414,47 @@ struct SessionView: View {
         .foregroundStyle(Kraft.ink)
     }
 
-    /// Receive mode: where the files go. Click to pick another folder.
+    /// Receive mode: where the files go. Click the folder to open it in the
+    /// Finder; "Change…" picks another one.
     var destination: some View {
-        Button {
-            session.chooseFolder?()
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
+            Button {
+                if let folder = session.folder { NSWorkspace.shared.open(folder) }
+            } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Key("Save to")
-                    Text(session.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 5) {
+                        Text(session.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .underline(hoverFolder)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Kraft.muted)
+                    }
                     Text(session.subtitle)
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(Kraft.muted)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
-                Spacer(minLength: 0)
-                Text("Change…")
-                    .font(.system(size: 9.5, weight: .heavy))
-                    .tracking(1)
-                    .textCase(.uppercase)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Kraft.ink, lineWidth: 1.5))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .onHover { hoverFolder = $0 }
+            .help("Open the folder in the Finder")
+            Button {
+                session.chooseFolder?()
+            } label: {
+                Chip("Change…")
+            }
+            .buttonStyle(.plain)
+            .help("Choose the folder for files from the phone")
         }
-        .buttonStyle(.plain)
-        // It is the only control, so it gets the focus when the window
-        // activates. The system ring around the whole block looks broken.
+        // The system focus ring around these blocks looks broken.
         .focusEffectDisabled()
-        .help("Choose the folder for files from the phone")
         .padding(.top, 8)
     }
 
@@ -455,14 +471,7 @@ struct SessionView: View {
                     .lineLimit(1...6)
                     .onSubmit(sendDraft)
                 Button(action: sendDraft) {
-                    Text("Send")
-                        .font(.system(size: 9.5, weight: .heavy))
-                        .tracking(1)
-                        .textCase(.uppercase)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Kraft.ink, lineWidth: 1.5))
-                        .contentShape(Rectangle())
+                    Chip("Send")
                 }
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
@@ -600,9 +609,13 @@ struct SessionView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         case let .received(name, count):
-            Label(count > 1 ? "Received \(count) files" : "Received \(name)", systemImage: "tray.and.arrow.down.fill")
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 6) {
+                Label(count > 1 ? "Received \(count) files" : "Received \(name)", systemImage: "tray.and.arrow.down.fill")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: count > 1 ? "magnifyingglass" : "arrow.up.forward")
+                    .opacity(0.7)
+            }
         case .textSent(let phones):
             Label(phones > 0 ? "Text sent to the phone" : "Text waits for the phone", systemImage: "text.bubble.fill")
         case .copied:
@@ -622,6 +635,105 @@ struct SessionView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 8)
         }
+    }
+}
+
+/// A small outlined button label, like a stamp on the label.
+struct Chip: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .heavy))
+            .tracking(1)
+            .textCase(.uppercase)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Kraft.ink, lineWidth: 1.5))
+            .contentShape(Rectangle())
+    }
+}
+
+/// Makes the status strip a handle for what the phone dropped off. One file:
+/// click opens it, drag puts it somewhere else. More files: click shows them
+/// in the Finder.
+struct ReceivedAction: ViewModifier {
+    let files: [URL]
+    @State private var hover = false
+
+    func body(content: Content) -> some View {
+        if files.isEmpty {
+            content
+        } else {
+            content
+                .overlay(Color.white.opacity(hover ? 0.1 : 0))
+                .overlay(DragHandle(files: files, hover: $hover))
+        }
+    }
+}
+
+/// The window moves when the user drags its background. SwiftUI cannot turn
+/// that off for one view, so clicks and drags on the strip go to this AppKit
+/// view instead.
+struct DragHandle: NSViewRepresentable {
+    let files: [URL]
+    @Binding var hover: Bool
+
+    func makeNSView(context: Context) -> DragHandleView { DragHandleView() }
+
+    func updateNSView(_ view: DragHandleView, context: Context) {
+        view.files = files
+        view.toolTip = files.count == 1 ? "Click to open, or drag it somewhere" : "Show the files in the Finder"
+        view.onHover = { hover = $0 }
+    }
+}
+
+final class DragHandleView: NSView, NSDraggingSource {
+    var files: [URL] = []
+    var onHover: ((Bool) -> Void)?
+    private var mouseDown: NSEvent?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+
+    override func mouseDown(with event: NSEvent) { mouseDown = event }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let down = mouseDown, files.count == 1, let file = files.first else { return }
+        let from = down.locationInWindow, to = event.locationInWindow
+        guard hypot(to.x - from.x, to.y - from.y) > 3 else { return }
+        mouseDown = nil
+        let icon = NSWorkspace.shared.icon(forFile: file.path)
+        let at = convert(from, from: nil)
+        let item = NSDraggingItem(pasteboardWriter: file as NSURL)
+        item.setDraggingFrame(NSRect(x: at.x - 32, y: at.y - 32, width: 64, height: 64), contents: icon)
+        beginDraggingSession(with: [item], event: down, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { mouseDown = nil }
+        guard mouseDown != nil, let file = files.last else { return }
+        if files.count == 1 {
+            NSWorkspace.shared.open(file)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting(files)
+        }
+    }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? .copy : []
     }
 }
 
