@@ -11,6 +11,9 @@
 //
 // "Share Text via QR Code" on selected text gives the phone that text to copy.
 // The window that opens with the app itself can also send text to the phone.
+//
+// The share extension (share/) adds Pickup to the Share menu of other apps.
+// It hands the items over through a pasteboard and "pickup://share".
 
 import AppKit
 import CoreImage.CIFilterBuiltins
@@ -748,6 +751,15 @@ final class SessionWindow: NSPanel {
 
 // MARK: - App
 
+/// Pasteboard that the share extension fills (see share/ShareViewController.swift).
+enum SharePasteboard {
+    static let pasteboard = NSPasteboard.Name("buzz.gnass.pickup.share")
+    /// File name for `data`.
+    static let fileName = NSPasteboard.PasteboardType("buzz.gnass.pickup.name")
+    /// Content without a file.
+    static let data = NSPasteboard.PasteboardType("buzz.gnass.pickup.data")
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var sessions: [ObjectIdentifier: (Session, NSWindow)] = [:]
@@ -811,8 +823,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func application(_ app: NSApplication, open urls: [URL]) {
+        if urls.contains(where: { $0.scheme == "pickup" && $0.host == "share" }) {
+            openSharedItems()
+        }
         start(urls.filter(\.isFileURL))
     }
+
+    /// Share menu entry point: the share extension (share/) put the items
+    /// on a private pasteboard and opened "pickup://share".
+    private func openSharedItems() {
+        let pboard = NSPasteboard(name: SharePasteboard.pasteboard)
+        defer { pboard.clearContents() }
+        var files: [URL] = []
+        var texts: [String] = []
+        for item in pboard.pasteboardItems ?? [] {
+            if let s = item.string(forType: .fileURL), let url = URL(string: s) {
+                files.append(url)
+            } else if let data = item.data(forType: SharePasteboard.data) {
+                // Content without a file: save it in a temporary folder.
+                let name = (item.string(forType: SharePasteboard.fileName) ?? "Shared") as NSString
+                let dir = sharedTemp.appendingPathComponent(UUID().uuidString)
+                let file = dir.appendingPathComponent(name.lastPathComponent)
+                do {
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    try data.write(to: file)
+                    files.append(file)
+                } catch {}
+            } else if let text = item.string(forType: .string) {
+                texts.append(text)
+            }
+        }
+        if !files.isEmpty {
+            start(files)
+        } else if !texts.isEmpty {
+            show(Session(text: texts.joined(separator: "\n")))
+        }
+    }
+
+    /// Files that the share extension sent as data. Removed when the app quits.
+    private let sharedTemp = FileManager.default.temporaryDirectory.appendingPathComponent("Pickup Shared")
 
     // AppKit does not count our panels as windows. Closing the folder picker
     // would look like "last window closed", so we quit by ourselves when the
@@ -821,6 +870,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ note: Notification) {
         for (s, _) in sessions.values { s.stop() }
+        try? FileManager.default.removeItem(at: sharedTemp)
     }
 
     /// Finder service entry point (NSMessage "shareViaQRCode" in Info.plist).

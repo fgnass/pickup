@@ -17,16 +17,26 @@ for ARCH in arm64 x86_64; do
   (cd helper && CGO_ENABLED=0 GOOS=darwin GOARCH=$GOARCH go build -trimpath -ldflags="-s -w" -o "../$TMP/helper-$ARCH" .)
   echo "→ app (Swift, $ARCH)"
   swiftc -O -swift-version 6 -target $ARCH-apple-macos14 -o "$TMP/app-$ARCH" app/main.swift
+  echo "→ share extension (Swift, $ARCH)"
+  swiftc -O -swift-version 6 -target $ARCH-apple-macos14 -application-extension -parse-as-library \
+    -module-name PickupShare -Xlinker -e -Xlinker _NSExtensionMain \
+    -o "$TMP/share-$ARCH" share/ShareViewController.swift
 done
 lipo -create "$TMP/helper-arm64" "$TMP/helper-x86_64" -output "$APP/Contents/MacOS/pickup-helper"
 lipo -create "$TMP/app-arm64" "$TMP/app-x86_64" -output "$APP/Contents/MacOS/Pickup"
+APPEX="$APP/Contents/PlugIns/PickupShare.appex"
+mkdir -p "$APPEX/Contents/MacOS" "$APPEX/Contents/Resources"
+lipo -create "$TMP/share-arm64" "$TMP/share-x86_64" -output "$APPEX/Contents/MacOS/PickupShare"
 rm -rf "$TMP"
 
 cp app/Info.plist "$APP/Contents/"
 cp app/AppIcon.icns "$APP/Contents/Resources/"
+cp share/Info.plist "$APPEX/Contents/"
+cp app/AppIcon.icns "$APPEX/Contents/Resources/"
 
 echo "→ sign (ad hoc)"
 codesign --force --sign - "$APP/Contents/MacOS/pickup-helper"
+codesign --force --sign - --entitlements share/PickupShare.entitlements "$APPEX"
 codesign --force --sign - "$APP"
 
 if [ "${1:-}" = "install" ]; then
@@ -38,6 +48,8 @@ if [ "${1:-}" = "install" ]; then
   cp -R "$APP" "$DEST"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
   /System/Library/CoreServices/pbs -update
+  pluginkit -a "$DEST/Contents/PlugIns/PickupShare.appex"
+  pluginkit -e use -i buzz.gnass.pickup.share
 fi
 
 if [ "${1:-}" = "release" ]; then

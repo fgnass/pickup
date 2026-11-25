@@ -11,6 +11,10 @@
         {
           "type": "generic",
           "path": "app/Info.plist"
+        },
+        {
+          "type": "generic",
+          "path": "share/Info.plist"
         }
       ]
     }

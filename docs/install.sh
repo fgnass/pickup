@@ -22,6 +22,9 @@ ditto -x -k "$TMP/Pickup.zip" "$DEST"
 # Make the Finder service "Share via QR Code" show up right away.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST/Pickup.app"
 /System/Library/CoreServices/pbs -update
+# Add Pickup to the Share menu of all apps.
+pluginkit -a "$DEST/Pickup.app/Contents/PlugIns/PickupShare.appex" 2>/dev/null || true
+pluginkit -e use -i buzz.gnass.pickup.share 2>/dev/null || true
 
 echo "Installed to $DEST/Pickup.app"
 echo "Right-click a file in the Finder and choose Share via QR Code."

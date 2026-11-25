@@ -317,7 +317,7 @@
       </div>
       <div class="cmd"><code id="cmd">curl -fsSL https://pickup.gnass.buzz/install.sh | sh</code><button type="button" id="copy">Copy</button></div>
     </div>
-    <p class="note">Paste it into the Terminal. It installs Pickup and adds “Share via QR Code” and “Receive via QR Code” to the Finder, and “Share Text via QR Code” to the menu for selected text. Pickup is not signed with an Apple developer certificate; apps installed from the Terminal get no warning from macOS. You can <a href="install.sh">read the script</a> first.</p>
+    <p class="note">Paste it into the Terminal. It installs Pickup and adds “Share via QR Code” and “Receive via QR Code” to the Finder, “Share Text via QR Code” to the menu for selected text, and Pickup to the Share menu of other apps. Pickup is not signed with an Apple developer certificate; apps installed from the Terminal get no warning from macOS. You can <a href="install.sh">read the script</a> first.</p>
 
     <div class="more">
       <details>
@@ -394,6 +394,12 @@
         <summary>“Share via QR Code” is not in the menu</summary>
         <div>
           <p>Open <b>System Settings → Keyboard → Keyboard Shortcuts → Services → Files and Folders</b> and turn on <b>Share via QR Code</b> and <b>Receive via QR Code</b>. <b>Share Text via QR Code</b> is under <b>Text</b>. You can also give them a shortcut there.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Pickup is not in the Share menu</summary>
+        <div>
+          <p>In the Share menu of any app, choose <b>Edit Extensions…</b> and turn on <b>Pickup</b>. Or open <b>System Settings → General → Login Items &amp; Extensions → Sharing</b>.</p>
         </div>
       </details>
     </div>

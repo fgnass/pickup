@@ -20,6 +20,10 @@ window is open. The phone shows the text with a **Copy** button (and **Open link
 for a web address). The page comes over plain HTTP, where browsers allow copying
 only after a tap, so one tap on the phone is always necessary.
 
+Pickup is in the **Share** menu of other apps too (for example Preview, Safari
+or Photos): choose **Share → Pickup** to give the phone a document, an image,
+a link or text.
+
 Everything stays on the local network. The phone needs no app and no internet.
 
 **Website:** https://pickup.gnass.buzz
@@ -37,6 +41,9 @@ Requires macOS 14 or later (Apple silicon or Intel).
 
 - `app/` — Swift menu-less app. It registers the Finder service (`NSServices`),
   shows the QR window and runs the helper. It quits when the last window closes.
+- `share/` — Share extension (`PickupShare.appex`). It runs in the sandbox,
+  puts the shared items on a private pasteboard and opens `pickup://share`
+  with the app, which then reads the pasteboard.
 - `helper/` — Go binary with [Pion](https://github.com/pion/webrtc). It serves
   the phone page over plain HTTP and sends the files over a WebRTC data channel.
 
@@ -61,7 +68,7 @@ Security:
 
 ```sh
 ./build.sh           # build/Pickup.app
-./build.sh install   # also copy to ~/Applications and register the service
+./build.sh install   # also copy to ~/Applications and register the service and the share extension
 ./build.sh release   # also write build/Pickup.zip (universal) for a GitHub release
 (cd helper && go test .)        # ZIP, path and drop-off tests
 swift scripts/make-icon.swift  # regenerate app/AppIcon.icns; see the script for the PNGs

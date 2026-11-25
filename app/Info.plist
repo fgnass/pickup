@@ -26,6 +26,17 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pickup sends files directly to your phone over the local network.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>buzz.gnass.pickup</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pickup</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
