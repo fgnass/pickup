@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/fgnass/pickup/compare/v0.3.0...v0.4.0) (2026-11-25)
+
+
+### Features
+
+* add Pickup to the Share menu of other apps ([ed28287](https://github.com/fgnass/pickup/commit/ed2828708f6f633346a8132176093831ab0aa5b3))
+* new app icon: the tile is the folder ([12fa1ca](https://github.com/fgnass/pickup/commit/12fa1cae67ae4ad609a5919d47f807d0a62fd29e))
+
 ## [0.3.0](https://github.com/fgnass/pickup/compare/v0.2.0...v0.3.0) (2026-11-20)
 
 
