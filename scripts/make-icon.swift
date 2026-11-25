@@ -1,7 +1,10 @@
-// Renders app/AppIcon.icns: a kraft paper folder with a shipping label (QR code,
-// address lines, red stamp box) on a light tile.
+// Renders app/AppIcon.icns: the tile is a kraft paper folder (dark back, light
+// front with a tab top left) with a shipping label (QR code, address lines,
+// red stamp box). macOS 26 puts icons that do not fill the tile shape into a
+// grey plate, so the folder fills the whole tile instead of cutting out a corner.
 // Run: swift scripts/make-icon.swift [preview.png] [folder-only.png]
-// The folder-only image has no tile and is cropped to the folder (for web pages).
+// The folder-only image is a free-standing folder with the same label,
+// cropped with room for the shadow (for web pages).
 import AppKit
 
 let sizes = [16, 32, 64, 128, 256, 512, 1024]
@@ -58,23 +61,68 @@ func qr(_ c: CGContext, _ x: CGFloat, _ y: CGFloat, _ size: CGFloat, _ n: Int, s
     }
 }
 
+/// The shipping label, straight, centered at (cx, cy). Its height is 5/8 of `w`.
+/// The QR code has few modules, so its finder squares stay visible in small sizes.
+func label(_ c: CGContext, scale: CGFloat, w: CGFloat, cx: CGFloat, cy: CGFloat) {
+    let k = w / 400, h = 250 * k, x = cx - w / 2, y = cy - h / 2
+    c.saveGState()
+    c.setShadow(offset: CGSize(width: 0, height: -10 * scale), blur: 24 * scale, color: rgb(0x4a3418, 0.32))
+    c.setFillColor(paper); c.addPath(rounded(x, y, w, h, 14 * k)); c.fillPath()
+    c.restoreGState()
+    qr(c, x + 24 * k, y + 24 * k, 202 * k, 17, seed: 7)
+    c.setFillColor(ink); c.addPath(rounded(x + 250 * k, y + 30 * k, 124 * k, 22 * k, 5 * k)); c.fillPath()
+    c.setFillColor(rgb(0x1f1b17, 0.45))
+    c.addPath(rounded(x + 250 * k, y + 72 * k, 110 * k, 13 * k, 4 * k)); c.fillPath()
+    c.addPath(rounded(x + 250 * k, y + 98 * k, 90 * k, 13 * k, 4 * k)); c.fillPath()
+    c.setStrokeColor(stamp); c.setLineWidth(9 * k); c.setLineCap(.round)
+    c.addPath(rounded(x + 250 * k, y + 150 * k, 124 * k, 74 * k, 8 * k)); c.strokePath()
+    c.move(to: CGPoint(x: x + 272 * k, y: y + 188 * k)); c.addLine(to: CGPoint(x: x + 352 * k, y: y + 188 * k)); c.strokePath()
+    c.restoreGState()
+}
+
 // Draws on a 1024 grid with y pointing down. `scale` converts to device pixels
 // for the shadow, which CoreGraphics does not scale with the CTM.
 func draw(_ c: CGContext, scale: CGFloat, tile: Bool = true) {
+    if tile { drawTile(c, scale: scale) } else { drawFolder(c, scale: scale) }
+}
+
+/// App icon: the tile is the folder back, the front panel has the tab.
+func drawTile(_ c: CGContext, scale: CGFloat) {
+    let tilePath = rounded(100, 100, 824, 824, 185)
+    c.saveGState()
+    c.setShadow(offset: CGSize(width: 0, height: -6 * scale), blur: 16 * scale, color: rgb(0x000000, 0.2))
+    c.setFillColor(rgb(0xa98252)); c.addPath(tilePath); c.fillPath()
+    c.restoreGState()
+
+    c.saveGState()
+    c.addPath(tilePath); c.clip()
+    gradient(c, rgb(0xa98252), rgb(0x8f683b), 100, 924)
+
+    // Front panel with the tab top left. It runs past the tile edges; the clip cuts it.
+    let top: CGFloat = 330, tabTop: CGFloat = 210
+    let front = CGMutablePath()
+    front.move(to: CGPoint(x: 0, y: tabTop))
+    front.addLine(to: CGPoint(x: 400, y: tabTop))
+    front.addCurve(to: CGPoint(x: 510, y: top), control1: CGPoint(x: 455, y: tabTop), control2: CGPoint(x: 455, y: top))
+    front.addLine(to: CGPoint(x: 1024, y: top))
+    front.addLine(to: CGPoint(x: 1024, y: 1024))
+    front.addLine(to: CGPoint(x: 0, y: 1024))
+    front.closeSubpath()
+    c.saveGState()
+    c.setShadow(offset: CGSize(width: 0, height: 8 * scale), blur: 20 * scale, color: rgb(0x3a2810, 0.4))
+    c.setFillColor(rgb(0xd8b685)); c.addPath(front); c.fillPath()
+    c.restoreGState()
+    c.saveGState(); c.addPath(front); c.clip(); gradient(c, rgb(0xe4c697), rgb(0xc49a66), tabTop, 924); c.restoreGState()
+    c.addPath(front); c.setStrokeColor(rgb(0xffffff, 0.3)); c.setLineWidth(6); c.strokePath()
+
+    label(c, scale: scale, w: 600, cx: 512, cy: 625)
+    c.restoreGState()
+}
+
+/// Free-standing folder for the web pages.
+func drawFolder(_ c: CGContext, scale: CGFloat) {
     func shadow() {
         c.setShadow(offset: CGSize(width: 0, height: -12 * scale), blur: 30 * scale, color: rgb(0x4a3418, 0.28))
-    }
-
-    // Light tile, same tone as the web pages.
-    if tile {
-        c.saveGState()
-        c.setShadow(offset: CGSize(width: 0, height: -6 * scale), blur: 16 * scale, color: rgb(0x000000, 0.18))
-        c.setFillColor(rgb(0xf6f4f0)); c.addPath(rounded(100, 100, 824, 824, 185)); c.fillPath()
-        c.restoreGState()
-        c.saveGState()
-        c.addPath(rounded(100, 100, 824, 824, 185)); c.clip()
-        gradient(c, rgb(0xfdfcfa), rgb(0xebe6de), 100, 924)
-        c.restoreGState()
     }
 
     // Folder back with tab.
@@ -120,27 +168,7 @@ func draw(_ c: CGContext, scale: CGFloat, tile: Bool = true) {
     edge.addQuadCurve(to: CGPoint(x: 824, y: 420), control: CGPoint(x: 824, y: 380))
     c.addPath(edge); c.setStrokeColor(rgb(0xffffff, 0.25)); c.setLineWidth(6); c.strokePath()
 
-    // Shipping label, tilted by -4°.
-    let x: CGFloat = 312, y: CGFloat = 450, w: CGFloat = 400, h: CGFloat = 250
-    c.saveGState()
-    c.translateBy(x: x + w / 2, y: y + h / 2)
-    c.rotate(by: -4 * .pi / 180)
-    c.translateBy(x: -(x + w / 2), y: -(y + h / 2))
-
-    c.saveGState()
-    shadow()
-    c.setFillColor(paper); c.addPath(rounded(x, y, w, h, 14)); c.fillPath()
-    c.restoreGState()
-
-    qr(c, x + 24, y + 24, 202, 21, seed: 3)
-    c.setFillColor(ink); c.addPath(rounded(x + 250, y + 30, 124, 22, 5)); c.fillPath()
-    c.setFillColor(rgb(0x1f1b17, 0.45))
-    c.addPath(rounded(x + 250, y + 72, 110, 13, 4)); c.fillPath()
-    c.addPath(rounded(x + 250, y + 98, 90, 13, 4)); c.fillPath()
-    c.setStrokeColor(stamp); c.setLineWidth(9); c.setLineCap(.round)
-    c.addPath(rounded(x + 250, y + 150, 124, 74, 8)); c.strokePath()
-    c.move(to: CGPoint(x: x + 272, y: y + 188)); c.addLine(to: CGPoint(x: x + 352, y: y + 188)); c.strokePath()
-    c.restoreGState()
+    label(c, scale: scale, w: 400, cx: 512, cy: 575)
 }
 
 func render(_ px: Int, tile: Bool = true) -> Data {
